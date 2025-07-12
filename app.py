@@ -7,6 +7,7 @@ import os
 import json
 import random
 import requests
+import time
 from datetime import datetime, timedelta
 from flask import Flask, render_template, request, jsonify, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
@@ -221,38 +222,102 @@ class InstagramAPI:
         token = access_token or self.default_token
         url = f"{self.base_url}/{account_id}/media"
         
+        # Comprehensive logging for debugging
+        print(f"\n=== INSTAGRAM API UPLOAD DEBUG ===")
+        print(f"API URL: {url}")
+        print(f"Account ID: {account_id}")
+        print(f"Image URL: {image_url}")
+        print(f"Caption length: {len(caption) if caption else 0}")
+        print(f"Access token (first 20 chars): {token[:20] if token else 'None'}...")
+        
         # Validate inputs
         if not image_url:
+            print("ERROR: Image URL is required")
             return {"error": "Image URL is required"}
             
         if not image_url.startswith(('http://', 'https://')):
+            print("ERROR: Image URL must be HTTP/HTTPS")
             return {"error": "Image URL must be a valid HTTP/HTTPS URL accessible by Instagram"}
         
+        # Test image URL accessibility (key assumption to validate)
+        print(f"Testing image URL accessibility...")
+        try:
+            image_response = requests.head(image_url, timeout=10)
+            print(f"Image URL HEAD response: {image_response.status_code}")
+            print(f"Image URL headers: {dict(image_response.headers)}")
+            
+            if image_response.status_code != 200:
+                print(f"CRITICAL: Image URL not accessible (status: {image_response.status_code})")
+                print(f"ANALYSIS: This is likely the main issue - Instagram can't access localhost URLs")
+                return {"error": f"Image URL not accessible: HTTP {image_response.status_code}. Instagram requires publicly accessible URLs. For testing, use a service like ngrok or upload to cloud storage."}
+                
+        except requests.exceptions.RequestException as e:
+            print(f"CRITICAL: Cannot access image URL: {e}")
+            print(f"ANALYSIS: This confirms the accessibility issue")
+            return {"error": f"Cannot access image URL: {str(e)}. Instagram requires publicly accessible URLs."}
+        
+        # Prepare request data
         data = {
             'image_url': image_url,
             'caption': caption or '',
             'access_token': token
         }
         
+        print(f"Request data: {data}")
+        
+        # Test with a sample public image URL to validate API request structure
+        if 'localhost' in image_url:
+            print(f"WARNING: Using localhost URL - this will likely fail with Instagram")
+            print(f"SUGGESTION: Use a publicly accessible image URL or ngrok for testing")
+        
         try:
-            response = requests.post(url, data=data)
+            print(f"Making Instagram API request...")
+            response = requests.post(url, data=data, timeout=30)
+            
+            print(f"Instagram API response status: {response.status_code}")
+            print(f"Instagram API response headers: {dict(response.headers)}")
+            
+            try:
+                response_json = response.json()
+                print(f"Instagram API response body: {response_json}")
+            except:
+                print(f"Instagram API response text: {response.text}")
             
             if response.status_code == 200:
                 result = response.json()
                 if 'id' in result:
+                    print(f"SUCCESS: Media container created with ID: {result['id']}")
                     return result
                 else:
-                    return {"error": f"Instagram API error: {result.get('error', {}).get('message', 'Unknown error')}"}
+                    error_msg = result.get('error', {}).get('message', 'Unknown error')
+                    print(f"ERROR: API success but no ID - {error_msg}")
+                    return {"error": f"Instagram API error: {error_msg}"}
             else:
                 try:
                     error_data = response.json()
                     error_message = error_data.get('error', {}).get('message', f'HTTP {response.status_code}')
+                    print(f"ERROR: API failed with message: {error_message}")
+                    
+                    # Analysis of common error patterns
+                    if 'media type' in error_message.lower():
+                        print("ANALYSIS: 'media type' error - Instagram couldn't access/validate the image")
+                        print("LIKELY CAUSE: Image URL is not publicly accessible")
+                        print("SOLUTION: Use ngrok, cloud storage, or public image hosting")
+                    elif 'permission' in error_message.lower():
+                        print("ANALYSIS: Permission error - check access token permissions")
+                    elif 'account' in error_message.lower():
+                        print("ANALYSIS: Account error - check account ID and type")
+                    elif 'url' in error_message.lower():
+                        print("ANALYSIS: URL error - image URL format or accessibility issue")
+                        
                 except:
                     error_message = f"HTTP {response.status_code}: {response.text}"
+                    print(f"ERROR: Failed to parse error response: {error_message}")
                 
                 return {"error": f"Failed to upload media: {error_message}"}
                 
         except requests.exceptions.RequestException as e:
+            print(f"ERROR: Network error during upload: {e}")
             return {"error": f"Network error during media upload: {str(e)}"}
     
     def publish_media(self, account_id, creation_id, access_token=None):
@@ -288,6 +353,21 @@ class InstagramAPI:
     
     def post_to_instagram(self, account_id, image_url, caption, access_token=None):
         """Complete flow: upload and publish to Instagram"""
+        
+        # Check if this is a test account
+        if access_token and access_token.startswith('test'):
+            print(f"\n=== TEST ACCOUNT DETECTED ===")
+            print(f"Account ID: {account_id}")
+            print(f"Image URL: {image_url}")
+            print(f"Caption: {caption[:100]}...")
+            print(f"Skipping actual Instagram API call for test account")
+            
+            # Return success for test accounts
+            return {
+                "id": f"test_post_{account_id}_{int(time.time())}",
+                "message": "Test post created successfully (no actual Instagram API call)"
+            }
+        
         # Step 1: Upload media (create container)
         upload_result = self.upload_media(account_id, image_url, caption, access_token)
         
@@ -622,6 +702,14 @@ def upload():
                 # In production, you should upload to cloud storage (Google Cloud Storage, AWS S3, etc.)
                 image_url = f"http://localhost:5555/uploads/{filename}"
                 
+                # Log the URL issue for debugging
+                print(f"\n=== FILE UPLOAD DEBUG ===")
+                print(f"Saved file: {filename}")
+                print(f"File path: {file_path}")
+                print(f"Image URL: {image_url}")
+                print(f"WARNING: Using localhost URL - Instagram won't be able to access this")
+                print(f"SUGGESTION: For testing, use ngrok or upload to cloud storage")
+                
                 # Get account info
                 account = Account.query.get(account_id)
                 if not account:
@@ -788,6 +876,55 @@ def test_upload():
             <input type="text" name="test_field" placeholder="Test field"><br><br>
             <button type="submit">Test Upload</button>
         </form>
+    </body>
+    </html>
+    '''
+
+@app.route('/test_instagram_api', methods=['GET', 'POST'])
+def test_instagram_api():
+    """Test Instagram API with public image URL"""
+    if request.method == 'POST':
+        # Test with a public image URL to validate API request structure
+        test_image_url = "https://images.unsplash.com/photo-1501594907352-04cda38ebc29?w=800&h=800&fit=crop"
+        test_caption = "Test post from Instagram automation tool"
+        
+        # Get test account
+        test_account = Account.query.filter(Account.username.like('%test%')).first()
+        if not test_account:
+            return jsonify({
+                "status": "error",
+                "message": "No test account found. Please create a test account first."
+            })
+        
+        print(f"\n=== TESTING INSTAGRAM API WITH PUBLIC IMAGE ===")
+        print(f"Test account: {test_account.username}")
+        print(f"Test image URL: {test_image_url}")
+        
+        # Test the API call
+        result = instagram_api.upload_media(
+            test_account.instagram_id,
+            test_image_url,
+            test_caption,
+            test_account.access_token
+        )
+        
+        return jsonify({
+            "status": "success" if 'id' in result else "error",
+            "message": "API test completed",
+            "result": result,
+            "account_used": test_account.username
+        })
+    
+    return '''
+    <html>
+    <body>
+        <h2>Instagram API Test</h2>
+        <p>This will test the Instagram API using a public image URL to validate the request structure.</p>
+        <form method="POST">
+            <button type="submit">Test Instagram API</button>
+        </form>
+        <br>
+        <p><strong>Note:</strong> This test uses a public image URL from Unsplash to validate that our API request structure is correct.</p>
     </body>
     </html>
     '''
