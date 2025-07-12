@@ -241,20 +241,45 @@ class InstagramAPI:
         
         # Test image URL accessibility (key assumption to validate)
         print(f"Testing image URL accessibility...")
-        try:
-            image_response = requests.head(image_url, timeout=10)
-            print(f"Image URL HEAD response: {image_response.status_code}")
-            print(f"Image URL headers: {dict(image_response.headers)}")
+        
+        # Special handling for localhost URLs
+        if 'localhost' in image_url or '127.0.0.1' in image_url:
+            print(f"DETECTED: Localhost URL - this will fail with real Instagram accounts")
+            print(f"URL: {image_url}")
             
-            if image_response.status_code != 200:
-                print(f"CRITICAL: Image URL not accessible (status: {image_response.status_code})")
-                print(f"ANALYSIS: This is likely the main issue - Instagram can't access localhost URLs")
-                return {"error": f"Image URL not accessible: HTTP {image_response.status_code}. Instagram requires publicly accessible URLs. For testing, use a service like ngrok or upload to cloud storage."}
+            # Test if URL is accessible locally
+            try:
+                image_response = requests.head(image_url, timeout=5)
+                print(f"Local accessibility: {image_response.status_code}")
                 
-        except requests.exceptions.RequestException as e:
-            print(f"CRITICAL: Cannot access image URL: {e}")
-            print(f"ANALYSIS: This confirms the accessibility issue")
-            return {"error": f"Cannot access image URL: {str(e)}. Instagram requires publicly accessible URLs."}
+                if image_response.status_code == 200:
+                    print(f"✅ Image is accessible locally")
+                    print(f"❌ But Instagram CANNOT access localhost URLs")
+                    return {"error": f"Instagram cannot access localhost URLs. Image is available locally but not publicly accessible. Use ngrok (ngrok http 5555) or upload to cloud storage to make it publicly accessible."}
+                else:
+                    print(f"❌ Image not even accessible locally: {image_response.status_code}")
+                    return {"error": f"Image not accessible even locally: HTTP {image_response.status_code}"}
+                    
+            except requests.exceptions.RequestException as e:
+                print(f"❌ Local accessibility test failed: {e}")
+                return {"error": f"Cannot access image URL locally: {str(e)}"}
+        
+        else:
+            # Test public URL accessibility
+            try:
+                image_response = requests.head(image_url, timeout=10)
+                print(f"Public URL accessibility: {image_response.status_code}")
+                print(f"Response headers: {dict(image_response.headers)}")
+                
+                if image_response.status_code != 200:
+                    print(f"CRITICAL: Public URL not accessible (status: {image_response.status_code})")
+                    return {"error": f"Image URL not accessible: HTTP {image_response.status_code}. Please check the URL and ensure it's publicly accessible."}
+                else:
+                    print(f"✅ Public URL is accessible - proceeding with Instagram API call")
+                    
+            except requests.exceptions.RequestException as e:
+                print(f"CRITICAL: Cannot access public URL: {e}")
+                return {"error": f"Cannot access image URL: {str(e)}. Please check the URL and network connectivity."}
         
         # Prepare request data
         data = {
@@ -264,11 +289,7 @@ class InstagramAPI:
         }
         
         print(f"Request data: {data}")
-        
-        # Test with a sample public image URL to validate API request structure
-        if 'localhost' in image_url:
-            print(f"WARNING: Using localhost URL - this will likely fail with Instagram")
-            print(f"SUGGESTION: Use a publicly accessible image URL or ngrok for testing")
+        print(f"Proceeding with Instagram API call...")
         
         try:
             print(f"Making Instagram API request...")
@@ -395,6 +416,42 @@ class InstagramAPI:
 instagram_api = InstagramAPI()
 
 # Utility Functions
+def detect_ngrok_url():
+    """Detect if ngrok is running and get the public URL"""
+    try:
+        # Check environment variable first
+        ngrok_url = os.getenv('NGROK_URL')
+        if ngrok_url:
+            # Validate the URL
+            response = requests.head(ngrok_url, timeout=5)
+            if response.status_code < 400:
+                return ngrok_url.rstrip('/')
+    except:
+        pass
+    
+    try:
+        # Try to get ngrok tunnels from ngrok API
+        response = requests.get('http://127.0.0.1:4040/api/tunnels', timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            for tunnel in data.get('tunnels', []):
+                if tunnel.get('config', {}).get('addr') == 'http://localhost:5555':
+                    public_url = tunnel.get('public_url')
+                    if public_url and public_url.startswith('https://'):
+                        return public_url.rstrip('/')
+    except:
+        pass
+    
+    return None
+
+def validate_image_accessibility(image_url):
+    """Validate that an image URL is accessible"""
+    try:
+        response = requests.head(image_url, timeout=10)
+        return response.status_code == 200, response.status_code
+    except requests.exceptions.RequestException as e:
+        return False, str(e)
+
 def calculate_post_time(base_time, variance_minutes=15):
     """Calculate actual posting time with random variance"""
     variance_seconds = variance_minutes * 60
@@ -697,24 +754,71 @@ def upload():
                 file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
                 file.save(file_path)
                 
-                # NOTE: Instagram requires publicly accessible URLs
-                # For development/testing, this creates a localhost URL
-                # In production, you should upload to cloud storage (Google Cloud Storage, AWS S3, etc.)
-                image_url = f"http://localhost:5555/uploads/{filename}"
-                
                 # Log the URL issue for debugging
                 print(f"\n=== FILE UPLOAD DEBUG ===")
                 print(f"Saved file: {filename}")
                 print(f"File path: {file_path}")
-                print(f"Image URL: {image_url}")
-                print(f"WARNING: Using localhost URL - Instagram won't be able to access this")
-                print(f"SUGGESTION: For testing, use ngrok or upload to cloud storage")
                 
-                # Get account info
+                # Check if we're using a test account or real account
                 account = Account.query.get(account_id)
                 if not account:
                     flash('Account not found', 'error')
-                    return redirect(url_for('upload'))
+                    accounts = Account.query.filter_by(is_active=True).all()
+                    templates = CaptionTemplate.query.filter_by(is_active=True).all()
+                    return render_template('upload.html', accounts=accounts, templates=templates)
+                
+                is_test_account = account.access_token.startswith('test')
+                
+                if is_test_account:
+                    # For test accounts, use localhost URL (will be handled by test account logic)
+                    image_url = f"http://localhost:5555/uploads/{filename}"
+                    print(f"Test account detected - using localhost URL: {image_url}")
+                else:
+                    # For real accounts, we need a publicly accessible URL
+                    print(f"CRITICAL: Real Instagram account detected but no public hosting configured")
+                    print(f"Account: {account.username} (Real token: {account.access_token[:20]}...)")
+                    
+                    # Check for ngrok or public URL
+                    ngrok_url = detect_ngrok_url()
+                    if ngrok_url:
+                        image_url = f"{ngrok_url}/uploads/{filename}"
+                        print(f"SUCCESS: Using ngrok URL: {image_url}")
+                    else:
+                        # No public URL available - provide clear error and solutions
+                        error_msg = """
+🚨 REAL INSTAGRAM ACCOUNT DETECTED - PUBLIC URL REQUIRED 🚨
+
+Instagram cannot access localhost URLs. You have several options:
+
+1. **NGROK (Recommended for testing):**
+   - Install ngrok: brew install ngrok (Mac) or download from ngrok.com
+   - Run: ngrok http 5555
+   - Copy the public URL (https://xxxxx.ngrok.io)
+   - Set NGROK_URL environment variable or restart app with ngrok running
+
+2. **Cloud Storage (Recommended for production):**
+   - Upload images to Google Cloud Storage, AWS S3, or similar
+   - Use publicly accessible URLs
+
+3. **Use Test Account:**
+   - Create an account with username starting with 'test_'
+   - Uses mock Instagram API calls for development
+
+4. **Image Hosting Service:**
+   - Upload to Imgur, Cloudinary, or similar service
+   - Use their public URLs
+
+Current account: @{} (Real Instagram account)
+                        """.format(account.username)
+                        
+                        flash(error_msg, 'error')
+                        accounts = Account.query.filter_by(is_active=True).all()
+                        templates = CaptionTemplate.query.filter_by(is_active=True).all()
+                        return render_template('upload.html', accounts=accounts, templates=templates)
+                
+                print(f"Final image URL: {image_url}")
+                
+                # Account was already retrieved above - no need to get it again
                 
                 # Process caption
                 if caption_template:
@@ -925,6 +1029,108 @@ def test_instagram_api():
         </form>
         <br>
         <p><strong>Note:</strong> This test uses a public image URL from Unsplash to validate that our API request structure is correct.</p>
+    </body>
+    </html>
+    '''
+
+@app.route('/setup_help')
+def setup_help():
+    """Help page for setting up public URLs"""
+    ngrok_url = detect_ngrok_url()
+    ngrok_status = "✅ DETECTED" if ngrok_url else "❌ NOT DETECTED"
+    
+    accounts = Account.query.all()
+    real_accounts = [acc for acc in accounts if not acc.access_token.startswith('test')]
+    test_accounts = [acc for acc in accounts if acc.access_token.startswith('test')]
+    
+    return f'''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Setup Help - Instagram Automation</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; margin: 40px; line-height: 1.6; }}
+            .status {{ padding: 10px; margin: 10px 0; border-radius: 5px; }}
+            .success {{ background-color: #d4edda; border: 1px solid #c3e6cb; }}
+            .warning {{ background-color: #fff3cd; border: 1px solid #ffeaa7; }}
+            .error {{ background-color: #f8d7da; border: 1px solid #f5c6cb; }}
+            .code {{ background-color: #f4f4f4; padding: 10px; border-radius: 5px; font-family: monospace; }}
+            .account {{ margin: 10px 0; padding: 10px; border: 1px solid #ddd; border-radius: 5px; }}
+        </style>
+    </head>
+    <body>
+        <h1>🛠️ Instagram Automation Setup Help</h1>
+        
+        <h2>📊 Current Status</h2>
+        <div class="status {'success' if ngrok_url else 'error'}">
+            <strong>Ngrok Status:</strong> {ngrok_status}<br>
+            {'<strong>Public URL:</strong> ' + ngrok_url if ngrok_url else 'No public URL detected'}
+        </div>
+        
+        <h2>👥 Account Summary</h2>
+        <div class="status {'success' if test_accounts else 'warning'}">
+            <strong>Test Accounts:</strong> {len(test_accounts)}<br>
+            {'✅ Can upload immediately (mock Instagram API)' if test_accounts else '⚠️ No test accounts found'}
+        </div>
+        
+        <div class="status {'error' if real_accounts and not ngrok_url else 'success' if real_accounts else 'warning'}">
+            <strong>Real Instagram Accounts:</strong> {len(real_accounts)}<br>
+            {('❌ Require public URL for uploads' if not ngrok_url else '✅ Ready to upload') if real_accounts else 'ℹ️ No real accounts configured'}
+        </div>
+        
+        <h2>🚀 Quick Setup Options</h2>
+        
+        <h3>Option 1: Use Test Account (Recommended for Development)</h3>
+        <div class="code">
+            1. Go to Add Account: <a href="/add_account">http://localhost:5555/add_account</a><br>
+            2. Username: test_myaccount<br>
+            3. Instagram ID: test123456<br>
+            4. Access Token: test_token<br>
+            5. Upload works immediately (no real Instagram API calls)
+        </div>
+        
+        <h3>Option 2: Setup Ngrok (For Real Instagram Accounts)</h3>
+        <div class="code">
+            # Install ngrok<br>
+            brew install ngrok  # Mac<br>
+            # or download from https://ngrok.com<br><br>
+            
+            # Run ngrok in a new terminal<br>
+            ngrok http 5555<br><br>
+            
+            # Copy the https URL (e.g., https://abc123.ngrok.io)<br>
+            # Set environment variable (optional):<br>
+            export NGROK_URL=https://abc123.ngrok.io<br><br>
+            
+            # Restart this app - it will auto-detect ngrok
+        </div>
+        
+        <h3>Option 3: Cloud Storage (Production)</h3>
+        <div class="code">
+            # Set up Google Cloud Storage, AWS S3, or similar<br>
+            # Upload images to cloud storage<br>
+            # Use public URLs for Instagram API<br>
+            # Requires code modification for cloud upload
+        </div>
+        
+        <h2>📋 Troubleshooting</h2>
+        
+        <h3>❌ "Instagram cannot access localhost URLs"</h3>
+        <p><strong>Solution:</strong> Use ngrok or test accounts. Instagram's servers cannot reach your localhost.</p>
+        
+        <h3>❌ "Only photo or video can be accepted as media type"</h3>
+        <p><strong>Cause:</strong> Instagram couldn't fetch the image from the URL.</p>
+        <p><strong>Solution:</strong> Ensure URL is publicly accessible (use ngrok or cloud storage).</p>
+        
+        <h3>❌ "Invalid OAuth access token"</h3>
+        <p><strong>Cause:</strong> Using test token with real Instagram API.</p>
+        <p><strong>Solution:</strong> Use proper Instagram Graph API token or switch to test account.</p>
+        
+        <div style="margin-top: 40px; text-align: center;">
+            <a href="/" style="background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">
+                ← Back to Dashboard
+            </a>
+        </div>
     </body>
     </html>
     '''
