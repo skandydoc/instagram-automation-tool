@@ -466,7 +466,37 @@ def add_account():
             flash('An account with this username or Instagram ID already exists', 'error')
             return render_template('add_account.html')
         
-        # Validate account with Instagram API
+        # Check if this is a test account (for development/testing)
+        is_test_account = (username.startswith('test_') or 
+                          instagram_id.startswith('test') or 
+                          access_token.startswith('test'))
+        
+        if is_test_account:
+            # Skip API validation for test accounts
+            account = Account(
+                username=username,
+                instagram_id=instagram_id,
+                access_token=access_token,
+                niche=niche,
+                account_type='business'
+            )
+            
+            db.session.add(account)
+            db.session.commit()
+            
+            # Create default posting schedule
+            schedule = PostingSchedule(
+                account_id=account.id,
+                time_slot_1=datetime.strptime('13:00', '%H:%M').time(),  # 1 PM
+                time_slot_2=datetime.strptime('22:00', '%H:%M').time()   # 10 PM
+            )
+            db.session.add(schedule)
+            db.session.commit()
+            
+            flash(f'Test account @{username} added successfully! (Test mode - no API validation)', 'success')
+            return redirect(url_for('accounts'))
+        
+        # Validate account with Instagram API for real accounts
         try:
             account_info = instagram_api.get_account_info(instagram_id, access_token)
             
@@ -523,9 +553,23 @@ def upload():
         try:
             # Debug logging
             print(f"Upload POST request received")
+            print(f"Content-Type: {request.content_type}")
+            print(f"Content-Length: {request.content_length}")
             print(f"Form data: {dict(request.form)}")
             print(f"Files in request: {list(request.files.keys())}")
             
+            # Additional debugging for file upload
+            if 'file' in request.files:
+                file_obj = request.files['file']
+                print(f"File object found: {file_obj}")
+                print(f"File filename: {file_obj.filename}")
+                print(f"File content type: {file_obj.content_type}")
+                print(f"File has content: {bool(file_obj.filename)}")
+            else:
+                print("No 'file' key in request.files")
+                print(f"All files keys: {list(request.files.keys())}")
+                print(f"Raw form data: {request.form}")
+                
             # Get form data with validation
             account_id = request.form.get('account_id')
             caption_template = request.form.get('caption_template', '')

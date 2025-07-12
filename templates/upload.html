@@ -223,11 +223,10 @@ document.addEventListener('DOMContentLoaded', function() {
     const fileStatusText = document.getElementById('fileStatusText');
     const clearFileBtn = document.getElementById('clearFile');
     
-    // Upload zone click handler (using event delegation)
-    document.addEventListener('click', function(e) {
-        if (e.target.closest('#uploadZone')) {
-            fileInput.click();
-        }
+    // Upload zone click handler - simple and direct
+    uploadZone.addEventListener('click', function(e) {
+        e.preventDefault();
+        fileInput.click();
     });
     
     // Drag and drop handlers
@@ -250,17 +249,19 @@ document.addEventListener('DOMContentLoaded', function() {
         
         const files = e.dataTransfer.files;
         if (files.length > 0) {
-            // Manually set the file to the input
-            const dt = new DataTransfer();
-            dt.items.add(files[0]);
-            fileInput.files = dt.files;
+            // Set the file directly to the input
+            fileInput.files = files;
             
-            handleFileSelect(files[0]);
+            // Trigger the change event to handle the file
+            const event = new Event('change', { bubbles: true });
+            fileInput.dispatchEvent(event);
         }
     });
     
     // File input change handler
     fileInput.addEventListener('change', function(e) {
+        console.log('File input change event triggered');
+        console.log('Files in input:', e.target.files);
         if (e.target.files.length > 0) {
             handleFileSelect(e.target.files[0]);
         }
@@ -289,13 +290,17 @@ document.addEventListener('DOMContentLoaded', function() {
         };
         reader.readAsDataURL(file);
         
-        // Update upload zone while maintaining click functionality
+        // Update upload zone content while preserving the file input
+        const fileInputElement = uploadZone.querySelector('input[type="file"]');
         uploadZone.innerHTML = `
             <i class="fas fa-check-circle fa-2x text-success mb-2"></i>
             <h5 class="text-success">Image Selected</h5>
             <p class="text-muted">${file.name}</p>
             <small class="text-muted">Click to change</small>
         `;
+        // Re-add the file input to maintain form connection
+        uploadZone.appendChild(fileInputElement);
+        
         uploadZone.style.backgroundColor = '#d4edda';
         uploadZone.style.borderColor = '#28a745';
         
@@ -373,12 +378,15 @@ document.addEventListener('DOMContentLoaded', function() {
         imagePreview.style.display = 'none';
         fileStatus.style.display = 'none';
         
-        // Reset upload zone
+        // Reset upload zone while preserving the file input
+        const fileInputElement = uploadZone.querySelector('input[type="file"]');
         uploadZone.innerHTML = `
             <i class="fas fa-cloud-upload-alt fa-3x text-muted mb-3"></i>
             <h4>Drag & Drop Your Image Here</h4>
             <p class="text-muted">or click to browse</p>
         `;
+        uploadZone.appendChild(fileInputElement);
+        
         uploadZone.style.backgroundColor = '';
         uploadZone.style.borderColor = '';
         
@@ -400,10 +408,19 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('uploadForm').addEventListener('submit', function(e) {
         const submitBtn = document.getElementById('submitBtn');
         
+        console.log('Form submission started');
+        console.log('Form element:', e.target);
+        console.log('Form method:', e.target.method);
+        console.log('Form enctype:', e.target.enctype);
+        console.log('File input element:', fileInput);
+        console.log('File input files:', fileInput.files);
+        console.log('File input parent:', fileInput.parentElement);
+        
         // Validate file is selected
         if (!fileInput.files || fileInput.files.length === 0) {
             e.preventDefault();
             alert('Please select an image file before submitting.');
+            console.log('Form blocked: No file selected');
             return false;
         }
         
@@ -411,6 +428,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!accountSelect.value) {
             e.preventDefault();
             alert('Please select an Instagram account.');
+            console.log('Form blocked: No account selected');
             return false;
         }
         
@@ -418,6 +436,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!customText.value.trim() && !captionTemplate.value) {
             e.preventDefault();
             alert('Please enter caption text or select a template.');
+            console.log('Form blocked: No caption');
             return false;
         }
         
@@ -428,9 +447,13 @@ document.addEventListener('DOMContentLoaded', function() {
         // Debug log
         console.log('Form submission details:');
         console.log('Selected file:', fileInput.files[0]);
+        console.log('File name:', fileInput.files[0].name);
+        console.log('File size:', fileInput.files[0].size);
+        console.log('File type:', fileInput.files[0].type);
         console.log('Selected account:', accountSelect.value);
         console.log('Caption text:', customText.value);
         console.log('Template:', captionTemplate.value);
+        console.log('Form will submit now...');
         
         return true;
     });
