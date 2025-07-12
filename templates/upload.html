@@ -1,0 +1,439 @@
+{% extends "base.html" %}
+
+{% block title %}Upload Content - Instagram Automation Tool{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="h3 mb-0">Upload Content</h1>
+    <a href="{{ url_for('posts') }}" class="btn btn-secondary">
+        <i class="fas fa-calendar-alt"></i> View Scheduled Posts
+    </a>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Upload and Schedule Your Post</h5>
+            </div>
+            <div class="card-body">
+                <form method="POST" enctype="multipart/form-data" id="uploadForm">
+                    <!-- Account Selection -->
+                    <div class="mb-3">
+                        <label for="account_id" class="form-label">Select Account</label>
+                        <select class="form-select" id="account_id" name="account_id" required>
+                            <option value="">Choose an account...</option>
+                            {% for account in accounts %}
+                            <option value="{{ account.id }}">@{{ account.username }}{% if account.niche %} - {{ account.niche }}{% endif %}</option>
+                            {% endfor %}
+                        </select>
+                        {% if not accounts %}
+                        <div class="form-text text-warning">
+                            <i class="fas fa-exclamation-triangle"></i> 
+                            No accounts connected. <a href="{{ url_for('add_account') }}">Add an account first</a>.
+                        </div>
+                        {% endif %}
+                    </div>
+                    
+                    <!-- File Upload -->
+                    <div class="mb-3">
+                        <label for="file" class="form-label">Upload Image</label>
+                        <div class="upload-zone" id="uploadZone">
+                            <i class="fas fa-cloud-upload-alt fa-3x text-muted mb-3"></i>
+                            <h4>Drag & Drop Your Image Here</h4>
+                            <p class="text-muted">or click to browse</p>
+                            <input type="file" class="form-control" id="file" name="file" accept="image/*" required style="display: none;">
+                        </div>
+                        <!-- File Status Indicator -->
+                        <div id="fileStatus" class="mt-2" style="display: none;">
+                            <small class="text-success">
+                                <i class="fas fa-check-circle"></i> 
+                                <span id="fileStatusText">File selected successfully</span>
+                            </small>
+                            <button type="button" class="btn btn-sm btn-outline-secondary ms-2" id="clearFile">
+                                <i class="fas fa-times"></i> Clear
+                            </button>
+                        </div>
+                                                 <div class="form-text">
+                             Supported formats: JPG, PNG, GIF. Max file size: 100MB.<br>
+                             <strong>Note:</strong> For testing, images will be served from localhost. 
+                             For production use, you'll need cloud storage (Google Drive, AWS S3, etc.).
+                         </div>
+                    </div>
+                    
+                    <!-- Image Preview -->
+                    <div id="imagePreview" class="mb-3" style="display: none;">
+                        <label class="form-label">Image Preview</label>
+                        <div class="text-center">
+                            <img id="previewImg" class="img-fluid" style="max-height: 300px; border-radius: 10px;">
+                        </div>
+                    </div>
+                    
+                    <!-- Caption Template -->
+                    <div class="mb-3">
+                        <label for="caption_template" class="form-label">Caption Template (Optional)</label>
+                        <select class="form-select" id="caption_template" name="caption_template">
+                            <option value="">Choose a template...</option>
+                            {% for template in templates %}
+                            <option value="{{ template.template }}">{{ template.name }} - {{ template.category }}</option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">
+                            Select a pre-made caption template or leave blank to use custom text only.
+                        </div>
+                    </div>
+                    
+                    <!-- Custom Caption Text -->
+                    <div class="mb-3">
+                        <label for="custom_text" class="form-label">Caption Text</label>
+                        <textarea class="form-control" id="custom_text" name="custom_text" rows="4" 
+                                  placeholder="Enter your caption text here..."></textarea>
+                        <div class="form-text">
+                            If you selected a template above, this text will replace the {custom_text} variable.
+                            Hashtags will be automatically added from the repository.
+                        </div>
+                    </div>
+                    
+                    <!-- Scheduling Options -->
+                    <div class="mb-3">
+                        <label class="form-label">Schedule Options</label>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="schedule_type" id="schedule_now" value="now" checked>
+                                    <label class="form-check-label" for="schedule_now">
+                                        <strong>Post Now</strong>
+                                        <br><small class="text-muted">Publish immediately</small>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="schedule_type" id="schedule_next" value="next_slot">
+                                    <label class="form-check-label" for="schedule_next">
+                                        <strong>Next Available Slot</strong>
+                                        <br><small class="text-muted">Schedule for next posting time (1 PM or 10 PM IST)</small>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Submit Button -->
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary btn-lg" id="submitBtn">
+                            <i class="fas fa-paper-plane"></i> Upload and Schedule
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Preview Panel -->
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Preview</h5>
+            </div>
+            <div class="card-body">
+                <div id="postPreview">
+                    <div class="text-center text-muted">
+                        <i class="fas fa-eye fa-2x mb-3"></i>
+                        <p>Upload an image to see the preview</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Instructions -->
+        <div class="card mt-3">
+            <div class="card-header">
+                <h6 class="card-title mb-0">
+                    <i class="fas fa-info-circle"></i> Quick Tips
+                </h6>
+            </div>
+            <div class="card-body">
+                <ul class="list-unstyled mb-0">
+                    <li class="mb-2">
+                        <i class="fas fa-check text-success"></i>
+                        Use high-quality images for better engagement
+                    </li>
+                    <li class="mb-2">
+                        <i class="fas fa-check text-success"></i>
+                        Square images (1:1 ratio) work best on Instagram
+                    </li>
+                    <li class="mb-2">
+                        <i class="fas fa-check text-success"></i>
+                        Caption templates save time and ensure consistency
+                    </li>
+                    <li class="mb-2">
+                        <i class="fas fa-check text-success"></i>
+                        Hashtags are automatically added from the repository
+                    </li>
+                    <li class="mb-2">
+                        <i class="fas fa-check text-success"></i>
+                        Posts are scheduled with random variance for natural timing
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<style>
+    .upload-zone {
+        border: 2px dashed #ccc;
+        border-radius: 10px;
+        padding: 40px;
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        background-color: #f8f9fa;
+    }
+    .upload-zone:hover {
+        border-color: #007bff;
+        background-color: #e3f2fd;
+    }
+    .upload-zone.dragover {
+        border-color: #007bff;
+        background-color: #e3f2fd;
+        transform: scale(1.02);
+    }
+    .instagram-post-preview {
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        padding: 12px;
+        background-color: #fff;
+    }
+</style>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const uploadZone = document.getElementById('uploadZone');
+    const fileInput = document.getElementById('file');
+    const imagePreview = document.getElementById('imagePreview');
+    const previewImg = document.getElementById('previewImg');
+    const postPreview = document.getElementById('postPreview');
+    const captionTemplate = document.getElementById('caption_template');
+    const customText = document.getElementById('custom_text');
+    const accountSelect = document.getElementById('account_id');
+    const fileStatus = document.getElementById('fileStatus');
+    const fileStatusText = document.getElementById('fileStatusText');
+    const clearFileBtn = document.getElementById('clearFile');
+    
+    // Upload zone click handler (using event delegation)
+    document.addEventListener('click', function(e) {
+        if (e.target.closest('#uploadZone')) {
+            fileInput.click();
+        }
+    });
+    
+    // Drag and drop handlers
+    uploadZone.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        uploadZone.classList.add('dragover');
+    });
+    
+    uploadZone.addEventListener('dragleave', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        uploadZone.classList.remove('dragover');
+    });
+    
+    uploadZone.addEventListener('drop', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        uploadZone.classList.remove('dragover');
+        
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+            // Manually set the file to the input
+            const dt = new DataTransfer();
+            dt.items.add(files[0]);
+            fileInput.files = dt.files;
+            
+            handleFileSelect(files[0]);
+        }
+    });
+    
+    // File input change handler
+    fileInput.addEventListener('change', function(e) {
+        if (e.target.files.length > 0) {
+            handleFileSelect(e.target.files[0]);
+        }
+    });
+    
+    // Handle file selection
+    function handleFileSelect(file) {
+        // Validate file type
+        if (!file.type.startsWith('image/')) {
+            alert('Please select a valid image file.');
+            return;
+        }
+        
+        // Validate file size (100MB)
+        if (file.size > 100 * 1024 * 1024) {
+            alert('File size must be less than 100MB.');
+            return;
+        }
+        
+        // Show preview
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            previewImg.src = e.target.result;
+            imagePreview.style.display = 'block';
+            updatePostPreview();
+        };
+        reader.readAsDataURL(file);
+        
+        // Update upload zone while maintaining click functionality
+        uploadZone.innerHTML = `
+            <i class="fas fa-check-circle fa-2x text-success mb-2"></i>
+            <h5 class="text-success">Image Selected</h5>
+            <p class="text-muted">${file.name}</p>
+            <small class="text-muted">Click to change</small>
+        `;
+        uploadZone.style.backgroundColor = '#d4edda';
+        uploadZone.style.borderColor = '#28a745';
+        
+        // Show file status
+        fileStatusText.textContent = `${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`;
+        fileStatus.style.display = 'block';
+    }
+    
+    // Update post preview
+    function updatePostPreview() {
+        const selectedAccount = accountSelect.options[accountSelect.selectedIndex];
+        const accountName = selectedAccount.value ? selectedAccount.text.split(' - ')[0] : '@username';
+        
+        const template = captionTemplate.value;
+        const customTextValue = customText.value;
+        
+        let caption = '';
+        if (template && customTextValue) {
+            caption = template.replace('{custom_text}', customTextValue);
+            caption = caption.replace('{account_name}', accountName);
+            caption = caption.replace('{day_of_week}', new Date().toLocaleDateString('en-US', { weekday: 'long' }));
+            caption = caption.replace('{date}', new Date().toLocaleDateString('en-US', { 
+                year: 'numeric', 
+                month: 'long', 
+                day: 'numeric' 
+            }));
+            caption = caption.replace('{time}', new Date().toLocaleTimeString('en-US', { 
+                hour: 'numeric', 
+                minute: '2-digit' 
+            }));
+            
+            // Determine time period
+            const hour = new Date().getHours();
+            let timePeriod = 'evening';
+            if (hour >= 5 && hour < 12) timePeriod = 'morning';
+            else if (hour >= 12 && hour < 17) timePeriod = 'afternoon';
+            else if (hour >= 17 && hour < 21) timePeriod = 'evening';
+            else timePeriod = 'night';
+            
+            caption = caption.replace('{time_period}', timePeriod);
+        } else if (customTextValue) {
+            caption = customTextValue;
+        }
+        
+        // Add sample hashtags
+        if (caption) {
+            caption += '\n\n#motivation #inspiration #success #entrepreneur #lifestyle #goals #mindset #growth #business #follow';
+        }
+        
+        // Update preview
+        if (previewImg.src && previewImg.src !== window.location.href) {
+            postPreview.innerHTML = `
+                <div class="instagram-post-preview">
+                    <div class="d-flex align-items-center mb-2">
+                        <div class="bg-primary rounded-circle d-flex align-items-center justify-content-center" 
+                             style="width: 32px; height: 32px; color: white; font-size: 14px;">
+                            <i class="fab fa-instagram"></i>
+                        </div>
+                        <div class="ms-2">
+                            <strong>${accountName}</strong>
+                        </div>
+                    </div>
+                    <img src="${previewImg.src}" class="img-fluid mb-2" style="border-radius: 8px;">
+                    <div class="caption" style="font-size: 14px; line-height: 1.4;">
+                        ${caption ? caption.replace(/\n/g, '<br>') : '<em class="text-muted">No caption</em>'}
+                    </div>
+                </div>
+            `;
+        }
+    }
+    
+    // Clear file functionality
+    clearFileBtn.addEventListener('click', function() {
+        fileInput.value = '';
+        imagePreview.style.display = 'none';
+        fileStatus.style.display = 'none';
+        
+        // Reset upload zone
+        uploadZone.innerHTML = `
+            <i class="fas fa-cloud-upload-alt fa-3x text-muted mb-3"></i>
+            <h4>Drag & Drop Your Image Here</h4>
+            <p class="text-muted">or click to browse</p>
+        `;
+        uploadZone.style.backgroundColor = '';
+        uploadZone.style.borderColor = '';
+        
+        // Reset preview
+        postPreview.innerHTML = `
+            <div class="text-center text-muted">
+                <i class="fas fa-eye fa-2x mb-3"></i>
+                <p>Upload an image to see the preview</p>
+            </div>
+        `;
+    });
+
+    // Update preview when inputs change
+    captionTemplate.addEventListener('change', updatePostPreview);
+    customText.addEventListener('input', updatePostPreview);
+    accountSelect.addEventListener('change', updatePostPreview);
+    
+    // Form submission validation
+    document.getElementById('uploadForm').addEventListener('submit', function(e) {
+        const submitBtn = document.getElementById('submitBtn');
+        
+        // Validate file is selected
+        if (!fileInput.files || fileInput.files.length === 0) {
+            e.preventDefault();
+            alert('Please select an image file before submitting.');
+            return false;
+        }
+        
+        // Validate account is selected
+        if (!accountSelect.value) {
+            e.preventDefault();
+            alert('Please select an Instagram account.');
+            return false;
+        }
+        
+        // Validate caption or template
+        if (!customText.value.trim() && !captionTemplate.value) {
+            e.preventDefault();
+            alert('Please enter caption text or select a template.');
+            return false;
+        }
+        
+        // Show loading state
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Uploading...';
+        submitBtn.disabled = true;
+        
+        // Debug log
+        console.log('Form submission details:');
+        console.log('Selected file:', fileInput.files[0]);
+        console.log('Selected account:', accountSelect.value);
+        console.log('Caption text:', customText.value);
+        console.log('Template:', captionTemplate.value);
+        
+        return true;
+    });
+});
+</script>
+{% endblock %} 

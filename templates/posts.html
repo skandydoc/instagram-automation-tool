@@ -1,0 +1,250 @@
+{% extends "base.html" %}
+
+{% block title %}Posts - Instagram Automation Tool{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="h3 mb-0">Posts & Schedule</h1>
+    <a href="{{ url_for('upload') }}" class="btn btn-primary">
+        <i class="fas fa-plus"></i> Add New Post
+    </a>
+</div>
+
+<!-- Filter Options -->
+<div class="row mb-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-body">
+                <form method="GET" class="row g-3">
+                    <div class="col-md-3">
+                        <label for="account" class="form-label">Account</label>
+                        <select class="form-select" id="account" name="account">
+                            <option value="">All Accounts</option>
+                                                         {% set account_list = [] %}
+                             {% for post in posts %}
+                                {% if post.account.username not in account_list %}
+                                    {% set _ = account_list.append(post.account.username) %}
+                                    <option value="{{ post.account.id }}" {{ 'selected' if request.args.get('account') == post.account.id|string else '' }}>
+                                        @{{ post.account.username }}
+                                    </option>
+                                {% endif %}
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="status" class="form-label">Status</label>
+                        <select class="form-select" id="status" name="status">
+                            <option value="">All Status</option>
+                            <option value="scheduled" {{ 'selected' if request.args.get('status') == 'scheduled' else '' }}>Scheduled</option>
+                            <option value="posted" {{ 'selected' if request.args.get('status') == 'posted' else '' }}>Posted</option>
+                            <option value="failed" {{ 'selected' if request.args.get('status') == 'failed' else '' }}>Failed</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="date_from" class="form-label">From Date</label>
+                        <input type="date" class="form-control" id="date_from" name="date_from" 
+                               value="{{ request.args.get('date_from', '') }}">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="date_to" class="form-label">To Date</label>
+                        <input type="date" class="form-control" id="date_to" name="date_to" 
+                               value="{{ request.args.get('date_to', '') }}">
+                    </div>
+                    <div class="col-12">
+                        <button type="submit" class="btn btn-outline-primary">
+                            <i class="fas fa-filter"></i> Filter
+                        </button>
+                        <a href="{{ url_for('posts') }}" class="btn btn-outline-secondary">
+                            <i class="fas fa-times"></i> Clear
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Posts List -->
+{% if posts %}
+<div class="row">
+    {% for post in posts %}
+    <div class="col-md-6 col-lg-4 mb-4">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <div class="d-flex align-items-center">
+                    <div class="bg-primary rounded-circle d-flex align-items-center justify-content-center me-2" 
+                         style="width: 24px; height: 24px; color: white; font-size: 12px;">
+                        <i class="fab fa-instagram"></i>
+                    </div>
+                    <small class="fw-bold">@{{ post.account.username }}</small>
+                </div>
+                <span class="badge bg-{{ 'success' if post.status == 'posted' else 'warning' if post.status == 'scheduled' else 'danger' }} status-badge">
+                    {{ post.status.title() }}
+                </span>
+            </div>
+            
+                         <!-- Post Image Preview -->
+             {% if post.media_urls %}
+                 <div class="card-img-top" style="height: 200px; overflow: hidden; background-color: #f8f9fa;">
+                     <div class="d-flex align-items-center justify-content-center h-100">
+                         <i class="fas fa-image fa-3x text-muted"></i>
+                     </div>
+                 </div>
+             {% endif %}
+            
+            <div class="card-body">
+                <!-- Caption Preview -->
+                <div class="mb-3">
+                    <h6 class="card-title">Caption</h6>
+                    <p class="card-text" style="font-size: 14px; max-height: 100px; overflow: hidden;">
+                        {{ post.caption[:150] }}{% if post.caption and post.caption|length > 150 %}...{% endif %}
+                    </p>
+                </div>
+                
+                <!-- Timing Information -->
+                <div class="mb-3">
+                    <h6 class="card-title">Timing</h6>
+                    <div class="row">
+                        <div class="col-6">
+                            <small class="text-muted">Scheduled:</small><br>
+                            <small>{{ post.scheduled_time.strftime('%Y-%m-%d %H:%M') }}</small>
+                        </div>
+                        <div class="col-6">
+                            {% if post.actual_post_time %}
+                            <small class="text-muted">Posted:</small><br>
+                            <small>{{ post.actual_post_time.strftime('%Y-%m-%d %H:%M') }}</small>
+                            {% else %}
+                            <small class="text-muted">Status:</small><br>
+                            <small>{{ post.status.title() }}</small>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Error Message -->
+                {% if post.error_message %}
+                <div class="alert alert-danger py-2" role="alert">
+                    <small><strong>Error:</strong> {{ post.error_message }}</small>
+                </div>
+                {% endif %}
+                
+                <!-- Instagram Link -->
+                {% if post.instagram_post_id %}
+                <div class="mb-2">
+                    <a href="https://www.instagram.com/p/{{ post.instagram_post_id }}" 
+                       target="_blank" class="btn btn-sm btn-outline-primary">
+                        <i class="fab fa-instagram"></i> View on Instagram
+                    </a>
+                </div>
+                {% endif %}
+            </div>
+            
+            <div class="card-footer">
+                <div class="d-flex justify-content-between align-items-center">
+                    <small class="text-muted">
+                        Created: {{ post.created_at.strftime('%Y-%m-%d') }}
+                    </small>
+                    <div class="dropdown">
+                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" 
+                                data-bs-toggle="dropdown" aria-expanded="false">
+                            Actions
+                        </button>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="#" onclick="viewPost('{{ post.id }}')">
+                                <i class="fas fa-eye"></i> View Details
+                            </a></li>
+                            {% if post.status == 'scheduled' %}
+                            <li><a class="dropdown-item" href="#" onclick="editPost('{{ post.id }}')">
+                                <i class="fas fa-edit"></i> Edit
+                            </a></li>
+                            <li><a class="dropdown-item text-danger" href="#" onclick="cancelPost('{{ post.id }}')">
+                                <i class="fas fa-times"></i> Cancel
+                            </a></li>
+                            {% endif %}
+                            {% if post.status == 'failed' %}
+                            <li><a class="dropdown-item text-success" href="#" onclick="retryPost('{{ post.id }}')">
+                                <i class="fas fa-redo"></i> Retry
+                            </a></li>
+                            {% endif %}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Pagination -->
+{% if posts|length > 12 %}
+<div class="row">
+    <div class="col-12">
+        <nav aria-label="Posts pagination">
+            <ul class="pagination justify-content-center">
+                <li class="page-item">
+                    <a class="page-link" href="#" aria-label="Previous">
+                        <span aria-hidden="true">&laquo;</span>
+                    </a>
+                </li>
+                <li class="page-item active"><a class="page-link" href="#">1</a></li>
+                <li class="page-item"><a class="page-link" href="#">2</a></li>
+                <li class="page-item"><a class="page-link" href="#">3</a></li>
+                <li class="page-item">
+                    <a class="page-link" href="#" aria-label="Next">
+                        <span aria-hidden="true">&raquo;</span>
+                    </a>
+                </li>
+            </ul>
+        </nav>
+    </div>
+</div>
+{% endif %}
+
+{% else %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-body text-center py-5">
+                <i class="fas fa-calendar-alt fa-4x text-muted mb-4"></i>
+                <h4 class="text-muted mb-3">No Posts Yet</h4>
+                <p class="text-muted mb-4">
+                    You haven't scheduled any posts yet. 
+                    Upload your first image to get started.
+                </p>
+                <a href="{{ url_for('upload') }}" class="btn btn-primary btn-lg">
+                    <i class="fas fa-upload"></i> Upload Your First Post
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function viewPost(postId) {
+    // For now, just show an alert. In a full implementation, this would open a modal with full post details
+    alert('View post details coming soon! Post ID: ' + postId);
+}
+
+function editPost(postId) {
+    // For now, just show an alert. In a full implementation, this would open an edit modal
+    alert('Edit post functionality coming soon! Post ID: ' + postId);
+}
+
+function cancelPost(postId) {
+    if (confirm('Are you sure you want to cancel this scheduled post?')) {
+        // For now, just show an alert. In a full implementation, this would make an API call
+        alert('Cancel post functionality coming soon! Post ID: ' + postId);
+    }
+}
+
+function retryPost(postId) {
+    if (confirm('Are you sure you want to retry this failed post?')) {
+        // For now, just show an alert. In a full implementation, this would make an API call
+        alert('Retry post functionality coming soon! Post ID: ' + postId);
+    }
+}
+</script>
+{% endblock %} 

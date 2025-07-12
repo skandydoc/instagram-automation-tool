@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+
+{% block title %}Accounts - Instagram Automation Tool{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="h3 mb-0">Account Management</h1>
+    <a href="{{ url_for('add_account') }}" class="btn btn-primary">
+        <i class="fas fa-plus"></i> Add New Account
+    </a>
+</div>
+
+{% if accounts %}
+<div class="row">
+    {% for account in accounts %}
+    <div class="col-md-6 col-lg-4 mb-4">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <div class="d-flex align-items-center">
+                    <div class="bg-primary rounded-circle d-flex align-items-center justify-content-center me-2" 
+                         style="width: 32px; height: 32px; color: white; font-size: 14px;">
+                        <i class="fab fa-instagram"></i>
+                    </div>
+                    <h6 class="mb-0">@{{ account.username }}</h6>
+                </div>
+                <span class="badge bg-{{ 'success' if account.is_active else 'secondary' }} status-badge">
+                    {{ 'Active' if account.is_active else 'Inactive' }}
+                </span>
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-12">
+                        <strong>Account Info</strong>
+                        <ul class="list-unstyled mt-2">
+                            <li><small class="text-muted">ID:</small> {{ account.instagram_id }}</li>
+                            <li><small class="text-muted">Type:</small> {{ account.account_type.title() }}</li>
+                            <li><small class="text-muted">Niche:</small> {{ account.niche or 'Not set' }}</li>
+                            <li><small class="text-muted">Added:</small> {{ account.created_at.strftime('%Y-%m-%d') }}</li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <div class="row mb-3">
+                    <div class="col-12">
+                        <strong>Post Statistics</strong>
+                        <div class="row text-center mt-2">
+                            <div class="col-4">
+                                <div class="bg-light rounded p-2">
+                                    <h6 class="mb-0">{{ account.posts|selectattr('status', 'equalto', 'posted')|list|length }}</h6>
+                                    <small class="text-muted">Posted</small>
+                                </div>
+                            </div>
+                            <div class="col-4">
+                                <div class="bg-light rounded p-2">
+                                    <h6 class="mb-0">{{ account.posts|selectattr('status', 'equalto', 'scheduled')|list|length }}</h6>
+                                    <small class="text-muted">Scheduled</small>
+                                </div>
+                            </div>
+                            <div class="col-4">
+                                <div class="bg-light rounded p-2">
+                                    <h6 class="mb-0">{{ account.posts|selectattr('status', 'equalto', 'failed')|list|length }}</h6>
+                                    <small class="text-muted">Failed</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row">
+                    <div class="col-12">
+                        <strong>Posting Schedule</strong>
+                        {% if account.schedule %}
+                            {% set schedule = account.schedule[0] %}
+                            <ul class="list-unstyled mt-2">
+                                <li><small class="text-muted">Morning:</small> {{ schedule.time_slot_1.strftime('%I:%M %p') }}</li>
+                                <li><small class="text-muted">Evening:</small> {{ schedule.time_slot_2.strftime('%I:%M %p') }}</li>
+                                <li><small class="text-muted">Variance:</small> ±{{ schedule.variance_minutes }} minutes</li>
+                                <li><small class="text-muted">Timezone:</small> {{ schedule.timezone }}</li>
+                            </ul>
+                        {% else %}
+                            <p class="text-muted mt-2">No schedule configured</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="card-footer">
+                <div class="d-flex justify-content-between">
+                    <button class="btn btn-sm btn-outline-primary" onclick="viewAccount('{{ account.id }}')">
+                        <i class="fas fa-eye"></i> View Posts
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="editAccount('{{ account.id }}')">
+                        <i class="fas fa-edit"></i> Edit
+                    </button>
+                    <button class="btn btn-sm btn-outline-{{ 'danger' if account.is_active else 'success' }}" 
+                            onclick="toggleAccount('{{ account.id }}', {{ account.is_active|lower }})">
+                        <i class="fas fa-{{ 'pause' if account.is_active else 'play' }}"></i> 
+                        {{ 'Disable' if account.is_active else 'Enable' }}
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-body text-center py-5">
+                <i class="fas fa-user-plus fa-4x text-muted mb-4"></i>
+                <h4 class="text-muted mb-3">No Accounts Connected</h4>
+                <p class="text-muted mb-4">
+                    You haven't connected any Instagram accounts yet. 
+                    Add your first account to start automating your posts.
+                </p>
+                <a href="{{ url_for('add_account') }}" class="btn btn-primary btn-lg">
+                    <i class="fas fa-plus"></i> Add Your First Account
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Account Summary -->
+{% if accounts %}
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Account Summary</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <h3 class="text-primary mb-0">{{ accounts|length }}</h3>
+                            <small class="text-muted">Total Accounts</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <h3 class="text-success mb-0">{{ accounts|selectattr('is_active', 'equalto', true)|list|length }}</h3>
+                            <small class="text-muted">Active Accounts</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                                                         <h3 class="text-info mb-0">
+                                 {% set total_posts = 0 %}
+                                 {% for account in accounts %}
+                                     {% set total_posts = total_posts + account.posts|length %}
+                                 {% endfor %}
+                                 {{ total_posts }}
+                             </h3>
+                             <small class="text-muted">Total Posts</small>
+                         </div>
+                     </div>
+                     <div class="col-md-3">
+                         <div class="text-center">
+                             <h3 class="text-warning mb-0">
+                                 {% set scheduled_posts = 0 %}
+                                 {% for account in accounts %}
+                                     {% set scheduled_posts = scheduled_posts + account.posts|selectattr('status', 'equalto', 'scheduled')|list|length %}
+                                 {% endfor %}
+                                 {{ scheduled_posts }}
+                             </h3>
+                            <small class="text-muted">Scheduled Posts</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function viewAccount(accountId) {
+    // Redirect to posts page with account filter
+    window.location.href = "{{ url_for('posts') }}?account=" + accountId;
+}
+
+function editAccount(accountId) {
+    // For now, just show an alert. In a full implementation, this would open an edit modal
+    alert('Edit functionality coming soon! Account ID: ' + accountId);
+}
+
+function toggleAccount(accountId, isActive) {
+    const action = isActive ? 'disable' : 'enable';
+    
+    if (confirm(`Are you sure you want to ${action} this account?`)) {
+        // For now, just show an alert. In a full implementation, this would make an API call
+        alert(`${action.charAt(0).toUpperCase() + action.slice(1)} account functionality coming soon!`);
+    }
+}
+</script>
+{% endblock %} 
