@@ -1,0 +1,48 @@
+{
+  "test_configuration": {
+    "total_accounts": 200,
+    "test_accounts": 180,
+    "real_accounts": 20,
+    "estimated_daily_posts": 400,
+    "estimated_api_calls_per_hour": 800,
+    "rate_limit_buffer": "50%"
+  },
+  "test_phases": [
+    {
+      "phase": "warm_up",
+      "duration": "30 minutes",
+      "accounts": 10,
+      "posts_per_account": 1,
+      "description": "Warm-up with small subset"
+    },
+    {
+      "phase": "ramp_up",
+      "duration": "1 hour",
+      "accounts": 50,
+      "posts_per_account": 2,
+      "description": "Gradually increase load"
+    },
+    {
+      "phase": "full_load",
+      "duration": "2 hours",
+      "accounts": 200,
+      "posts_per_account": 2,
+      "description": "Full load testing"
+    },
+    {
+      "phase": "stress_test",
+      "duration": "30 minutes",
+      "accounts": 200,
+      "posts_per_account": 5,
+      "description": "Stress test with high load"
+    }
+  ],
+  "monitoring_points": [
+    "Database connection pool usage",
+    "Background job queue size",
+    "Memory usage",
+    "Response times",
+    "Error rates",
+    "API rate limit usage"
+  ]
+}

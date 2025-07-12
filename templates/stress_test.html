@@ -1,0 +1,330 @@
+{% extends "base.html" %}
+
+{% block title %}Stress Test - Instagram Automation{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">
+                        <i class="fas fa-bolt"></i> Stress Test - Concurrent Load Testing
+                    </h3>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-warning" role="alert">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <strong>Warning:</strong> Stress testing will create multiple concurrent posts to test system limits.
+                        Monitor system performance during testing.
+                    </div>
+
+                    <form method="POST">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label for="account_count">
+                                        <i class="fas fa-users"></i> Number of Test Accounts
+                                    </label>
+                                    <input type="number" class="form-control" id="account_count" 
+                                           name="account_count" value="10" min="1" max="100" required>
+                                    <small class="form-text text-muted">
+                                        Available test accounts: {{ test_accounts_count }}
+                                    </small>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label for="posts_per_account">
+                                        <i class="fas fa-images"></i> Posts per Account
+                                    </label>
+                                    <input type="number" class="form-control" id="posts_per_account" 
+                                           name="posts_per_account" value="2" min="1" max="10" required>
+                                    <small class="form-text text-muted">
+                                        Number of posts to create for each account
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label for="concurrent_posts">
+                                        <i class="fas fa-layer-group"></i> Concurrent Threads
+                                    </label>
+                                    <input type="number" class="form-control" id="concurrent_posts" 
+                                           name="concurrent_posts" value="5" min="1" max="50" required>
+                                    <small class="form-text text-muted">
+                                        Number of simultaneous posting threads
+                                    </small>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label for="test_duration">
+                                        <i class="fas fa-clock"></i> Test Duration (seconds)
+                                    </label>
+                                    <input type="number" class="form-control" id="test_duration" 
+                                           name="test_duration" value="60" min="30" max="300" required>
+                                    <small class="form-text text-muted">
+                                        Maximum test duration (30-300 seconds)
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Test Configuration Preview -->
+                        <div class="row">
+                            <div class="col-md-12">
+                                <div class="card bg-light">
+                                    <div class="card-header">
+                                        <h5 class="card-title">
+                                            <i class="fas fa-chart-bar"></i> Test Configuration Preview
+                                        </h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="row">
+                                            <div class="col-md-3">
+                                                <div class="text-center">
+                                                    <h4 class="text-primary" id="total_posts">--</h4>
+                                                    <p class="mb-0">Total Posts</p>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-3">
+                                                <div class="text-center">
+                                                    <h4 class="text-warning" id="concurrent_load">--</h4>
+                                                    <p class="mb-0">Concurrent Load</p>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-3">
+                                                <div class="text-center">
+                                                    <h4 class="text-info" id="estimated_time">--</h4>
+                                                    <p class="mb-0">Estimated Time</p>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-3">
+                                                <div class="text-center">
+                                                    <h4 class="text-success" id="load_level">--</h4>
+                                                    <p class="mb-0">Load Level</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Stress Test Scenarios -->
+                        <div class="row mt-4">
+                            <div class="col-md-12">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <h5 class="card-title">
+                                            <i class="fas fa-list"></i> Pre-configured Stress Test Scenarios
+                                        </h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="row">
+                                            <div class="col-md-3">
+                                                <button type="button" class="btn btn-outline-success btn-block" 
+                                                        onclick="setScenario('light')">
+                                                    <i class="fas fa-leaf"></i> Light Load
+                                                    <br><small>10 accounts, 1 post, 3 threads</small>
+                                                </button>
+                                            </div>
+                                            <div class="col-md-3">
+                                                <button type="button" class="btn btn-outline-warning btn-block" 
+                                                        onclick="setScenario('medium')">
+                                                    <i class="fas fa-balance-scale"></i> Medium Load
+                                                    <br><small>25 accounts, 2 posts, 10 threads</small>
+                                                </button>
+                                            </div>
+                                            <div class="col-md-3">
+                                                <button type="button" class="btn btn-outline-danger btn-block" 
+                                                        onclick="setScenario('heavy')">
+                                                    <i class="fas fa-weight-hanging"></i> Heavy Load
+                                                    <br><small>50 accounts, 3 posts, 20 threads</small>
+                                                </button>
+                                            </div>
+                                            <div class="col-md-3">
+                                                <button type="button" class="btn btn-outline-dark btn-block" 
+                                                        onclick="setScenario('stress')">
+                                                    <i class="fas fa-fire"></i> Stress Test
+                                                    <br><small>100 accounts, 5 posts, 50 threads</small>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Submit Button -->
+                        <div class="row mt-4">
+                            <div class="col-md-12">
+                                <div class="d-flex justify-content-between">
+                                    <button type="submit" class="btn btn-danger btn-lg" id="start_test_btn">
+                                        <i class="fas fa-play"></i> Start Stress Test
+                                    </button>
+                                    <a href="{{ url_for('load_test_dashboard') }}" class="btn btn-secondary">
+                                        <i class="fas fa-chart-line"></i> Load Test Dashboard
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Safety Guidelines -->
+    <div class="row mt-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title">
+                        <i class="fas fa-shield-alt"></i> Stress Testing Safety Guidelines
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6><i class="fas fa-check-circle text-success"></i> Safe Practices</h6>
+                            <ul>
+                                <li>Start with light load scenarios</li>
+                                <li>Monitor system resources during testing</li>
+                                <li>Use test accounts only (no real Instagram posts)</li>
+                                <li>Keep concurrent threads reasonable (≤ 50)</li>
+                                <li>Test during off-peak hours</li>
+                                <li>Have system monitoring tools ready</li>
+                            </ul>
+                        </div>
+                        <div class="col-md-6">
+                            <h6><i class="fas fa-exclamation-triangle text-warning"></i> Monitor These Metrics</h6>
+                            <ul>
+                                <li>CPU usage (keep below 80%)</li>
+                                <li>Memory usage (keep below 80%)</li>
+                                <li>Database response times</li>
+                                <li>Background job queue size</li>
+                                <li>Error rates and success rates</li>
+                                <li>Network I/O and disk usage</li>
+                            </ul>
+                        </div>
+                    </div>
+                    
+                    <div class="alert alert-info mt-3">
+                        <h6><i class="fas fa-info-circle"></i> What This Test Does:</h6>
+                        <p class="mb-0">
+                            This stress test creates multiple concurrent threads that simulate posting behavior across many accounts.
+                            It tests database performance, background job scheduling, memory usage, and overall system stability
+                            under heavy load conditions. All posts use test accounts with mock Instagram API calls.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Pre-configured scenarios
+const scenarios = {
+    light: { accounts: 10, posts: 1, threads: 3, duration: 60 },
+    medium: { accounts: 25, posts: 2, threads: 10, duration: 120 },
+    heavy: { accounts: 50, posts: 3, threads: 20, duration: 180 },
+    stress: { accounts: 100, posts: 5, threads: 50, duration: 300 }
+};
+
+function setScenario(scenarioName) {
+    const scenario = scenarios[scenarioName];
+    if (scenario) {
+        document.getElementById('account_count').value = scenario.accounts;
+        document.getElementById('posts_per_account').value = scenario.posts;
+        document.getElementById('concurrent_posts').value = scenario.threads;
+        document.getElementById('test_duration').value = scenario.duration;
+        updatePreview();
+    }
+}
+
+function updatePreview() {
+    const accounts = parseInt(document.getElementById('account_count').value) || 0;
+    const postsPerAccount = parseInt(document.getElementById('posts_per_account').value) || 0;
+    const concurrent = parseInt(document.getElementById('concurrent_posts').value) || 0;
+    const duration = parseInt(document.getElementById('test_duration').value) || 0;
+    
+    const totalPosts = accounts * postsPerAccount;
+    const estimatedTime = Math.ceil(totalPosts / concurrent * 0.5); // Rough estimate
+    
+    document.getElementById('total_posts').textContent = totalPosts;
+    document.getElementById('concurrent_load').textContent = concurrent;
+    document.getElementById('estimated_time').textContent = estimatedTime + 's';
+    
+    // Determine load level
+    let loadLevel = 'Light';
+    let loadClass = 'text-success';
+    
+    if (totalPosts > 100 || concurrent > 20) {
+        loadLevel = 'Heavy';
+        loadClass = 'text-danger';
+    } else if (totalPosts > 50 || concurrent > 10) {
+        loadLevel = 'Medium';
+        loadClass = 'text-warning';
+    }
+    
+    const loadElement = document.getElementById('load_level');
+    loadElement.textContent = loadLevel;
+    loadElement.className = loadClass;
+    
+    // Update button based on load
+    const button = document.getElementById('start_test_btn');
+    if (loadLevel === 'Heavy') {
+        button.className = 'btn btn-danger btn-lg';
+        button.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Start High-Risk Test';
+    } else {
+        button.className = 'btn btn-danger btn-lg';
+        button.innerHTML = '<i class="fas fa-play"></i> Start Stress Test';
+    }
+    
+         // Validate against available accounts
+     const availableAccounts = parseInt('{{ test_accounts_count }}');
+     if (accounts > availableAccounts) {
+         document.getElementById('account_count').setCustomValidity(
+             'Only ' + availableAccounts + ' test accounts available'
+         );
+     } else {
+         document.getElementById('account_count').setCustomValidity('');
+     }
+}
+
+// Add event listeners
+document.getElementById('account_count').addEventListener('input', updatePreview);
+document.getElementById('posts_per_account').addEventListener('input', updatePreview);
+document.getElementById('concurrent_posts').addEventListener('input', updatePreview);
+document.getElementById('test_duration').addEventListener('input', updatePreview);
+
+// Initial preview update
+updatePreview();
+
+// Form submission warning
+document.querySelector('form').addEventListener('submit', function(e) {
+    const totalPosts = parseInt(document.getElementById('total_posts').textContent);
+    const concurrent = parseInt(document.getElementById('concurrent_posts').value);
+    
+    if (totalPosts > 100 || concurrent > 20) {
+        const confirmed = confirm(
+            `⚠️ HIGH LOAD WARNING ⚠️\n\n` +
+            `This test will create ${totalPosts} posts with ${concurrent} concurrent threads.\n` +
+            `This may significantly impact system performance.\n\n` +
+            `Make sure you're monitoring system resources.\n\n` +
+            `Continue with stress test?`
+        );
+        
+        if (!confirmed) {
+            e.preventDefault();
+        }
+    }
+});
+</script>
+{% endblock %} 

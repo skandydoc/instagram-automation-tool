@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+
+{% block title %}Bulk Account Creation - Instagram Automation{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">
+                        <i class="fas fa-users"></i> Bulk Account Creation for Load Testing
+                    </h3>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-info" role="alert">
+                        <i class="fas fa-info-circle"></i>
+                        <strong>Load Testing Mode:</strong> This tool creates test accounts for infrastructure testing.
+                        Use this to test your system's ability to handle hundreds of accounts simultaneously.
+                    </div>
+
+                    <form method="POST">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label for="account_count">
+                                        <i class="fas fa-hashtag"></i> Number of Accounts to Create
+                                    </label>
+                                    <input type="number" class="form-control" id="account_count" 
+                                           name="account_count" value="100" min="1" max="1000" required>
+                                    <small class="form-text text-muted">
+                                        Choose between 1 and 1000 accounts. Start with 100 for initial testing.
+                                    </small>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label for="real_percentage">
+                                        <i class="fas fa-percent"></i> Real Account Percentage
+                                    </label>
+                                    <input type="number" class="form-control" id="real_percentage" 
+                                           name="real_percentage" value="10" min="0" max="100" required>
+                                    <small class="form-text text-muted">
+                                        Percentage of accounts that will simulate real Instagram accounts (for API validation).
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label for="account_type">
+                                        <i class="fas fa-tag"></i> Account Type
+                                    </label>
+                                    <select class="form-control" id="account_type" name="account_type">
+                                        <option value="test">Test Accounts (Recommended)</option>
+                                        <option value="mixed">Mixed Test & Real-like</option>
+                                    </select>
+                                    <small class="form-text text-muted">
+                                        Test accounts use mock API calls, real-like accounts test actual API integration.
+                                    </small>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label>
+                                        <i class="fas fa-chart-line"></i> Estimated Load
+                                    </label>
+                                    <div class="form-control-plaintext">
+                                        <span id="estimated_load">
+                                            <strong>Daily Posts:</strong> <span id="daily_posts">200</span> | 
+                                            <strong>API Calls/Hour:</strong> <span id="api_calls">400</span>
+                                        </span>
+                                    </div>
+                                    <small class="form-text text-muted">
+                                        Based on 2 posts per account per day and 4 API calls per account per hour.
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-12">
+                                <div class="card bg-light">
+                                    <div class="card-header">
+                                        <h5 class="card-title">
+                                            <i class="fas fa-info-circle"></i> Instagram API Rate Limits
+                                        </h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="row">
+                                            <div class="col-md-4">
+                                                <div class="text-center">
+                                                    <i class="fas fa-clock text-warning fa-2x"></i>
+                                                    <h6 class="mt-2">Platform Rate Limits</h6>
+                                                    <p class="text-muted">200 calls per hour per app</p>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <div class="text-center">
+                                                    <i class="fas fa-calendar-day text-info fa-2x"></i>
+                                                    <h6 class="mt-2">Daily Post Limits</h6>
+                                                    <p class="text-muted">25 posts per account per day</p>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <div class="text-center">
+                                                    <i class="fas fa-shield-alt text-success fa-2x"></i>
+                                                    <h6 class="mt-2">Rate Limit Strategy</h6>
+                                                    <p class="text-muted">Test accounts bypass API limits</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row mt-4">
+                            <div class="col-md-12">
+                                <div class="d-flex justify-content-between">
+                                    <button type="submit" class="btn btn-primary btn-lg">
+                                        <i class="fas fa-plus-circle"></i> Create Bulk Accounts
+                                    </button>
+                                    <a href="{{ url_for('load_test_dashboard') }}" class="btn btn-secondary">
+                                        <i class="fas fa-chart-bar"></i> Load Test Dashboard
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title">
+                        <i class="fas fa-lightbulb"></i> Load Testing Best Practices
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6><i class="fas fa-check-circle text-success"></i> Recommended Approach</h6>
+                            <ul>
+                                <li>Start with 100 test accounts</li>
+                                <li>Use 90% test accounts, 10% real-like accounts</li>
+                                <li>Monitor system performance during testing</li>
+                                <li>Gradually increase load (100 → 200 → 500 → 1000)</li>
+                                <li>Test during different times of day</li>
+                            </ul>
+                        </div>
+                        <div class="col-md-6">
+                            <h6><i class="fas fa-exclamation-triangle text-warning"></i> Important Notes</h6>
+                            <ul>
+                                <li>Test accounts use mock API calls (no real Instagram posts)</li>
+                                <li>Real-like accounts test API integration but require valid tokens</li>
+                                <li>Monitor database performance and memory usage</li>
+                                <li>Clean up test data after testing</li>
+                                <li>Stay within Instagram's rate limits for real accounts</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Update estimated load calculations
+function updateEstimatedLoad() {
+    const accountCount = parseInt(document.getElementById('account_count').value) || 0;
+    const dailyPosts = accountCount * 2; // 2 posts per account per day
+    const apiCalls = accountCount * 4; // 4 API calls per account per hour
+    
+    document.getElementById('daily_posts').textContent = dailyPosts;
+    document.getElementById('api_calls').textContent = apiCalls;
+    
+    // Update color based on load
+    const estimatedLoad = document.getElementById('estimated_load');
+    if (apiCalls > 150) {
+        estimatedLoad.className = 'text-danger';
+    } else if (apiCalls > 100) {
+        estimatedLoad.className = 'text-warning';
+    } else {
+        estimatedLoad.className = 'text-success';
+    }
+}
+
+// Update calculations when account count changes
+document.getElementById('account_count').addEventListener('input', updateEstimatedLoad);
+
+// Initial calculation
+updateEstimatedLoad();
+</script>
+{% endblock %} 

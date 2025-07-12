@@ -1386,6 +1386,307 @@ def init_db():
     
     return redirect(url_for('index'))
 
+@app.route('/bulk_accounts', methods=['GET', 'POST'])
+def bulk_accounts():
+    """Bulk account creation for load testing"""
+    if request.method == 'POST':
+        try:
+            # Get form data
+            account_count = int(request.form.get('account_count', 100))
+            account_type = request.form.get('account_type', 'test')
+            real_percentage = int(request.form.get('real_percentage', 10))
+            
+            # Validate inputs
+            if account_count < 1 or account_count > 1000:
+                flash('Account count must be between 1 and 1000', 'error')
+                return render_template('bulk_accounts.html')
+            
+            if real_percentage < 0 or real_percentage > 100:
+                flash('Real account percentage must be between 0 and 100', 'error')
+                return render_template('bulk_accounts.html')
+            
+            # Import test account generator
+            import sys
+            sys.path.append('.')
+            from test_account_generator import TestAccountGenerator
+            
+            # Generate accounts
+            generator = TestAccountGenerator()
+            accounts = generator.generate_mixed_accounts(account_count, real_percentage)
+            
+            # Insert into database
+            created_count = 0
+            for account_data in accounts:
+                try:
+                    # Check if account already exists
+                    existing = Account.query.filter_by(username=account_data['username']).first()
+                    if existing:
+                        continue
+                    
+                    # Create new account
+                    account = Account(
+                        username=account_data['username'],
+                        instagram_id=account_data['instagram_id'],
+                        access_token=account_data['access_token'],
+                        account_type=account_data['account_type'],
+                        niche=account_data['niche'],
+                        is_active=account_data['is_active']
+                    )
+                    
+                    db.session.add(account)
+                    created_count += 1
+                    
+                except Exception as e:
+                    print(f"Error creating account {account_data['username']}: {e}")
+                    continue
+            
+            # Commit all accounts
+            db.session.commit()
+            
+            # Create default posting schedules for new accounts
+            new_accounts = Account.query.filter(
+                Account.username.like('%test_%')
+            ).all()
+            
+            schedule_count = 0
+            for account in new_accounts:
+                existing_schedule = PostingSchedule.query.filter_by(account_id=account.id).first()
+                if not existing_schedule:
+                    schedule = PostingSchedule(
+                        account_id=account.id,
+                        time_slot_1=datetime.strptime('13:00', '%H:%M').time(),
+                        time_slot_2=datetime.strptime('22:00', '%H:%M').time(),
+                        variance_minutes=15
+                    )
+                    db.session.add(schedule)
+                    schedule_count += 1
+            
+            db.session.commit()
+            
+            flash(f'Successfully created {created_count} accounts and {schedule_count} schedules!', 'success')
+            return redirect(url_for('load_test_dashboard'))
+            
+        except Exception as e:
+            db.session.rollback()
+            flash(f'Error creating bulk accounts: {str(e)}', 'error')
+            return render_template('bulk_accounts.html')
+    
+    # GET request - show bulk creation form
+    return render_template('bulk_accounts.html')
+
+@app.route('/load_test_dashboard')
+def load_test_dashboard():
+    """Load testing dashboard"""
+    # Get account statistics
+    total_accounts = Account.query.count()
+    test_accounts = Account.query.filter(Account.access_token.like('test_%')).count()
+    real_accounts = total_accounts - test_accounts
+    active_accounts = Account.query.filter_by(is_active=True).count()
+    
+    # Get posting statistics
+    total_posts = Post.query.count()
+    scheduled_posts = Post.query.filter_by(status='scheduled').count()
+    posted_posts = Post.query.filter_by(status='posted').count()
+    failed_posts = Post.query.filter_by(status='failed').count()
+    
+    # Get recent activity
+    recent_posts = Post.query.order_by(Post.created_at.desc()).limit(10).all()
+    
+    # Calculate performance metrics
+    success_rate = (posted_posts / total_posts * 100) if total_posts > 0 else 0
+    
+    # Get database performance info
+    import psutil
+    import os
+    
+    # System performance
+    cpu_percent = psutil.cpu_percent()
+    memory_info = psutil.virtual_memory()
+    disk_info = psutil.disk_usage('/')
+    
+    # Database file size (SQLite)
+    db_file_path = 'instagram_automation.db'
+    db_size = os.path.getsize(db_file_path) / (1024 * 1024) if os.path.exists(db_file_path) else 0
+    
+    performance_metrics = {
+        'cpu_percent': cpu_percent,
+        'memory_percent': memory_info.percent,
+        'memory_used_gb': memory_info.used / (1024**3),
+        'memory_total_gb': memory_info.total / (1024**3),
+        'disk_percent': disk_info.percent,
+        'disk_used_gb': disk_info.used / (1024**3),
+        'disk_total_gb': disk_info.total / (1024**3),
+        'db_size_mb': db_size
+    }
+    
+    return render_template('load_test_dashboard.html', 
+                         total_accounts=total_accounts,
+                         test_accounts=test_accounts,
+                         real_accounts=real_accounts,
+                         active_accounts=active_accounts,
+                         total_posts=total_posts,
+                         scheduled_posts=scheduled_posts,
+                         posted_posts=posted_posts,
+                         failed_posts=failed_posts,
+                         success_rate=success_rate,
+                         recent_posts=recent_posts,
+                         performance_metrics=performance_metrics)
+
+@app.route('/stress_test', methods=['GET', 'POST'])
+def stress_test():
+    """Stress test with concurrent posting"""
+    if request.method == 'POST':
+        try:
+            # Get test parameters
+            account_count = int(request.form.get('account_count', 10))
+            posts_per_account = int(request.form.get('posts_per_account', 1))
+            concurrent_posts = int(request.form.get('concurrent_posts', 5))
+            test_duration = int(request.form.get('test_duration', 60))  # seconds
+            
+            # Validate parameters
+            if account_count > 100:
+                flash('Account count limited to 100 for stress testing', 'error')
+                return render_template('stress_test.html')
+            
+            # Get test accounts
+            test_accounts = Account.query.filter(
+                Account.access_token.like('test_%')
+            ).filter_by(is_active=True).limit(account_count).all()
+            
+            if len(test_accounts) < account_count:
+                flash(f'Only {len(test_accounts)} test accounts available. Create more test accounts first.', 'error')
+                return render_template('stress_test.html')
+            
+            # Create stress test posts
+            import threading
+            import time
+            from datetime import datetime, timedelta
+            
+            posts_created = 0
+            errors = []
+            
+            def create_test_post(account, post_num):
+                try:
+                    # Create a test post
+                    post = Post(
+                        account_id=account.id,
+                        content_type='image',
+                        caption=f'Stress test post #{post_num} from {account.username}',
+                        media_urls=json.dumps(['http://localhost:5555/static/test_image.jpg']),
+                        scheduled_time=datetime.utcnow() + timedelta(seconds=random.randint(1, 60))
+                    )
+                    
+                    db.session.add(post)
+                    db.session.commit()
+                    return True
+                except Exception as e:
+                    errors.append(f"Error creating post for {account.username}: {e}")
+                    return False
+            
+            # Execute stress test
+            start_time = time.time()
+            threads = []
+            
+            for account in test_accounts:
+                for i in range(posts_per_account):
+                    thread = threading.Thread(
+                        target=create_test_post,
+                        args=(account, i + 1)
+                    )
+                    threads.append(thread)
+                    thread.start()
+                    
+                    # Limit concurrent threads
+                    if len(threads) >= concurrent_posts:
+                        for t in threads:
+                            t.join()
+                        threads = []
+                    
+                    # Small delay to prevent overwhelming the system
+                    time.sleep(0.1)
+            
+            # Wait for remaining threads
+            for t in threads:
+                t.join()
+            
+            end_time = time.time()
+            test_duration_actual = end_time - start_time
+            
+            # Calculate results
+            total_posts_attempted = account_count * posts_per_account
+            posts_created = Post.query.filter(
+                Post.created_at >= datetime.utcnow() - timedelta(seconds=test_duration_actual + 10)
+            ).count()
+            
+            success_rate = (posts_created / total_posts_attempted * 100) if total_posts_attempted > 0 else 0
+            
+            # Flash results
+            flash(f'Stress test completed! Created {posts_created}/{total_posts_attempted} posts ({success_rate:.1f}% success rate) in {test_duration_actual:.1f} seconds', 'success')
+            
+            if errors:
+                flash(f'Encountered {len(errors)} errors during stress test', 'warning')
+            
+            return redirect(url_for('load_test_dashboard'))
+            
+        except Exception as e:
+            flash(f'Stress test failed: {str(e)}', 'error')
+            return render_template('stress_test.html')
+    
+    # GET request - show stress test form
+    test_accounts_count = Account.query.filter(Account.access_token.like('test_%')).count()
+    return render_template('stress_test.html', test_accounts_count=test_accounts_count)
+
+@app.route('/api/performance_metrics')
+def performance_metrics():
+    """API endpoint for real-time performance metrics"""
+    try:
+        import psutil
+        import os
+        
+        # System metrics
+        cpu_percent = psutil.cpu_percent()
+        memory_info = psutil.virtual_memory()
+        
+        # Database metrics
+        db_file_path = 'instagram_automation.db'
+        db_size = os.path.getsize(db_file_path) / (1024 * 1024) if os.path.exists(db_file_path) else 0
+        
+        # Application metrics
+        total_accounts = Account.query.count()
+        active_posts = Post.query.filter_by(status='scheduled').count()
+        failed_posts = Post.query.filter_by(status='failed').count()
+        
+        # Background job metrics (approximation)
+        pending_jobs = Post.query.filter_by(status='scheduled').filter(
+            Post.scheduled_time <= datetime.utcnow() + timedelta(hours=1)
+        ).count()
+        
+        metrics = {
+            'timestamp': datetime.utcnow().isoformat(),
+            'system': {
+                'cpu_percent': cpu_percent,
+                'memory_percent': memory_info.percent,
+                'memory_used_mb': memory_info.used / (1024**2),
+                'memory_available_mb': memory_info.available / (1024**2)
+            },
+            'database': {
+                'size_mb': db_size,
+                'total_accounts': total_accounts,
+                'active_posts': active_posts,
+                'failed_posts': failed_posts
+            },
+            'application': {
+                'pending_jobs': pending_jobs,
+                'scheduler_running': scheduler.running,
+                'active_job_count': len(scheduler.get_jobs())
+            }
+        }
+        
+        return jsonify(metrics)
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()

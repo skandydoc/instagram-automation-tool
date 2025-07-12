@@ -113,6 +113,9 @@
             <a href="{{ url_for('setup_help') }}" class="{{ 'active' if request.endpoint == 'setup_help' else '' }}">
                 <i class="fas fa-question-circle"></i> Setup Help
             </a>
+            <a href="{{ url_for('load_test_dashboard') }}" class="{{ 'active' if request.endpoint in ['load_test_dashboard', 'bulk_accounts', 'stress_test'] else '' }}">
+                <i class="fas fa-chart-line"></i> Load Testing
+            </a>
             <a href="{{ url_for('init_db') }}" class="{{ 'active' if request.endpoint == 'init_db' else '' }}">
                 <i class="fas fa-database"></i> Initialize DB
             </a>
