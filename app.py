@@ -17,6 +17,15 @@ from apscheduler.triggers.date import DateTrigger
 from dotenv import load_dotenv
 import pytz
 
+# Google Cloud Storage imports
+try:
+    from google.cloud import storage
+    from google.auth.exceptions import DefaultCredentialsError
+    GCS_AVAILABLE = True
+except ImportError:
+    GCS_AVAILABLE = False
+    print("Warning: Google Cloud Storage not available. Install with: pip install google-cloud-storage")
+
 # Load environment variables
 load_dotenv()
 
@@ -26,6 +35,11 @@ app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'sqlite:///ins
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB max file size
+
+# Google Cloud Storage configuration
+app.config['GCS_BUCKET_NAME'] = os.getenv('GCS_BUCKET_NAME', 'instagram-automation-storage')
+app.config['GCS_PROJECT_ID'] = os.getenv('GCS_PROJECT_ID')
+app.config['GOOGLE_APPLICATION_CREDENTIALS'] = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
 
 # Ensure upload folder exists
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -458,6 +472,115 @@ def calculate_post_time(base_time, variance_minutes=15):
     random_offset = random.randint(-variance_seconds, variance_seconds)
     return base_time + timedelta(seconds=random_offset)
 
+# Google Cloud Storage Functions
+class GoogleCloudStorage:
+    """Google Cloud Storage helper class"""
+    
+    def __init__(self):
+        self.bucket_name = app.config['GCS_BUCKET_NAME']
+        self.project_id = app.config['GCS_PROJECT_ID']
+        self.client = None
+        self.bucket = None
+        self.available = GCS_AVAILABLE
+        self.authenticated = False
+        
+        if self.available:
+            self._initialize_client()
+    
+    def _initialize_client(self):
+        """Initialize GCS client with authentication"""
+        try:
+            # Try to initialize the client
+            if self.project_id:
+                self.client = storage.Client(project=self.project_id)
+            else:
+                self.client = storage.Client()
+            
+            # Test authentication by trying to get bucket info
+            self.bucket = self.client.bucket(self.bucket_name)
+            
+            # Test if bucket exists and is accessible
+            if self.bucket.exists():
+                self.authenticated = True
+                print(f"✅ Google Cloud Storage initialized successfully")
+                print(f"   Bucket: {self.bucket_name}")
+                print(f"   Project: {self.project_id or 'default'}")
+            else:
+                print(f"⚠️  GCS Bucket '{self.bucket_name}' does not exist or is not accessible")
+                self.authenticated = False
+                
+        except DefaultCredentialsError:
+            print(f"❌ GCS Authentication failed: No valid credentials found")
+            print(f"   Set GOOGLE_APPLICATION_CREDENTIALS or use: gcloud auth application-default login")
+            self.authenticated = False
+        except Exception as e:
+            print(f"❌ GCS Initialization failed: {e}")
+            self.authenticated = False
+    
+    def is_available(self):
+        """Check if GCS is available and authenticated"""
+        return self.available and self.authenticated
+    
+    def upload_file(self, file_obj, filename, content_type=None):
+        """Upload file to Google Cloud Storage"""
+        if not self.is_available():
+            return None, "Google Cloud Storage not available or not authenticated"
+        
+        try:
+            # Generate unique filename with timestamp
+            timestamp = int(time.time())
+            safe_filename = secure_filename(filename)
+            unique_filename = f"instagram_uploads/{timestamp}_{safe_filename}"
+            
+            # Create blob and upload
+            blob = self.bucket.blob(unique_filename)
+            
+            # Set content type if provided
+            if content_type:
+                blob.content_type = content_type
+            
+            # Upload file
+            file_obj.seek(0)  # Reset file pointer
+            blob.upload_from_file(file_obj)
+            
+            # Make blob publicly readable
+            blob.make_public()
+            
+            # Get public URL
+            public_url = blob.public_url
+            
+            print(f"✅ File uploaded to GCS successfully")
+            print(f"   Filename: {unique_filename}")
+            print(f"   Public URL: {public_url}")
+            
+            return public_url, None
+            
+        except Exception as e:
+            error_msg = f"Failed to upload to Google Cloud Storage: {str(e)}"
+            print(f"❌ {error_msg}")
+            return None, error_msg
+    
+    def get_status(self):
+        """Get detailed status of GCS configuration"""
+        status = {
+            'available': self.available,
+            'authenticated': self.authenticated,
+            'bucket_name': self.bucket_name,
+            'project_id': self.project_id,
+            'bucket_exists': False
+        }
+        
+        if self.authenticated and self.bucket:
+            try:
+                status['bucket_exists'] = self.bucket.exists()
+            except:
+                status['bucket_exists'] = False
+        
+        return status
+
+# Initialize GCS instance
+gcs = GoogleCloudStorage()
+
 def get_random_hashtags(count=20):
     """Get random hashtags from repository"""
     hashtags = HashtagRepository.query.filter_by(is_active=True).all()
@@ -774,47 +897,90 @@ def upload():
                     image_url = f"http://localhost:5555/uploads/{filename}"
                     print(f"Test account detected - using localhost URL: {image_url}")
                 else:
-                    # For real accounts, we need a publicly accessible URL
-                    print(f"CRITICAL: Real Instagram account detected but no public hosting configured")
-                    print(f"Account: {account.username} (Real token: {account.access_token[:20]}...)")
+                    # For real accounts, try Google Cloud Storage first, then ngrok
+                    print(f"Real Instagram account detected: @{account.username}")
+                    print(f"Account token: {account.access_token[:20]}...")
                     
-                    # Check for ngrok or public URL
-                    ngrok_url = detect_ngrok_url()
-                    if ngrok_url:
-                        image_url = f"{ngrok_url}/uploads/{filename}"
-                        print(f"SUCCESS: Using ngrok URL: {image_url}")
-                    else:
-                        # No public URL available - provide clear error and solutions
-                        error_msg = """
-🚨 REAL INSTAGRAM ACCOUNT DETECTED - PUBLIC URL REQUIRED 🚨
+                    image_url = None
+                    upload_method = None
+                    
+                    # Option 1: Try Google Cloud Storage
+                    if gcs.is_available():
+                        print(f"Attempting upload to Google Cloud Storage...")
+                        
+                        # Re-open the file for GCS upload
+                        try:
+                            with open(file_path, 'rb') as gcs_file:
+                                public_url, gcs_error = gcs.upload_file(
+                                    gcs_file, 
+                                    filename, 
+                                    file.content_type
+                                )
+                                
+                            if public_url:
+                                image_url = public_url
+                                upload_method = "Google Cloud Storage"
+                                print(f"✅ SUCCESS: Using GCS URL: {image_url}")
+                            else:
+                                print(f"❌ GCS upload failed: {gcs_error}")
+                                
+                        except Exception as e:
+                            print(f"❌ GCS upload error: {e}")
+                    
+                    # Option 2: Fallback to ngrok if GCS is not available
+                    if not image_url:
+                        print(f"Trying ngrok fallback...")
+                        ngrok_url = detect_ngrok_url()
+                        if ngrok_url:
+                            image_url = f"{ngrok_url}/uploads/{filename}"
+                            upload_method = "ngrok"
+                            print(f"✅ SUCCESS: Using ngrok URL: {image_url}")
+                    
+                    # Option 3: No public URL available - provide helpful error
+                    if not image_url:
+                        gcs_status = gcs.get_status()
+                        
+                        error_msg = f"""
+🚨 REAL INSTAGRAM ACCOUNT - PUBLIC URL REQUIRED 🚨
 
-Instagram cannot access localhost URLs. You have several options:
+Current account: @{account.username} (Real Instagram account)
 
-1. **NGROK (Recommended for testing):**
-   - Install ngrok: brew install ngrok (Mac) or download from ngrok.com
-   - Run: ngrok http 5555
-   - Copy the public URL (https://xxxxx.ngrok.io)
-   - Set NGROK_URL environment variable or restart app with ngrok running
+📊 CURRENT STATUS:
+• Google Cloud Storage: {'✅ Available' if gcs_status['available'] else '❌ Not Available'}
+• GCS Authentication: {'✅ Authenticated' if gcs_status['authenticated'] else '❌ Not Authenticated'}
+• GCS Bucket: {'✅ Exists' if gcs_status['bucket_exists'] else '❌ Missing/Inaccessible'}
+• Ngrok: {'✅ Detected' if detect_ngrok_url() else '❌ Not Running'}
 
-2. **Cloud Storage (Recommended for production):**
-   - Upload images to Google Cloud Storage, AWS S3, or similar
-   - Use publicly accessible URLs
+🛠️ SETUP GOOGLE CLOUD STORAGE (Recommended):
 
-3. **Use Test Account:**
-   - Create an account with username starting with 'test_'
-   - Uses mock Instagram API calls for development
+1. **Create GCS Bucket:**
+   - Go to Google Cloud Console
+   - Create a new bucket: '{gcs_status['bucket_name']}'
+   - Set public access policies
 
-4. **Image Hosting Service:**
-   - Upload to Imgur, Cloudinary, or similar service
-   - Use their public URLs
+2. **Authentication Setup:**
+   - Create service account key OR
+   - Run: gcloud auth application-default login
 
-Current account: @{} (Real Instagram account)
-                        """.format(account.username)
+3. **Update Configuration:**
+   - Set GCS_PROJECT_ID in .env file
+   - Set GCS_BUCKET_NAME in .env file
+   - Restart the application
+
+🔧 ALTERNATIVE OPTIONS:
+• Use test account (username starting with 'test_')
+• Setup ngrok: ngrok http 5555
+• Use different image hosting service
+
+📋 Need help? Visit /setup_help for detailed instructions.
+                        """
                         
                         flash(error_msg, 'error')
                         accounts = Account.query.filter_by(is_active=True).all()
                         templates = CaptionTemplate.query.filter_by(is_active=True).all()
                         return render_template('upload.html', accounts=accounts, templates=templates)
+                    
+                    print(f"✅ Using {upload_method} for image hosting")
                 
                 print(f"Final image URL: {image_url}")
                 
@@ -1039,6 +1205,10 @@ def setup_help():
     ngrok_url = detect_ngrok_url()
     ngrok_status = "✅ DETECTED" if ngrok_url else "❌ NOT DETECTED"
     
+    # Get GCS status
+    gcs_status = gcs.get_status()
+    gcs_overall_status = "✅ READY" if gcs_status['authenticated'] and gcs_status['bucket_exists'] else "❌ NOT READY"
+    
     accounts = Account.query.all()
     real_accounts = [acc for acc in accounts if not acc.access_token.startswith('test')]
     test_accounts = [acc for acc in accounts if acc.access_token.startswith('test')]
@@ -1061,11 +1231,21 @@ def setup_help():
     <body>
         <h1>🛠️ Instagram Automation Setup Help</h1>
         
-        <h2>📊 Current Status</h2>
-        <div class="status {'success' if ngrok_url else 'error'}">
-            <strong>Ngrok Status:</strong> {ngrok_status}<br>
-            {'<strong>Public URL:</strong> ' + ngrok_url if ngrok_url else 'No public URL detected'}
-        </div>
+                 <h2>📊 Current Status</h2>
+         
+         <div class="status {'success' if gcs_status['authenticated'] and gcs_status['bucket_exists'] else 'error'}">
+             <strong>Google Cloud Storage:</strong> {gcs_overall_status}<br>
+             <strong>Available:</strong> {'✅ Yes' if gcs_status['available'] else '❌ No'}<br>
+             <strong>Authenticated:</strong> {'✅ Yes' if gcs_status['authenticated'] else '❌ No'}<br>
+             <strong>Bucket:</strong> {gcs_status['bucket_name']}<br>
+             <strong>Bucket Exists:</strong> {'✅ Yes' if gcs_status['bucket_exists'] else '❌ No'}<br>
+             <strong>Project ID:</strong> {gcs_status['project_id'] or 'Not configured'}
+         </div>
+         
+         <div class="status {'success' if ngrok_url else 'warning'}">
+             <strong>Ngrok Status:</strong> {ngrok_status}<br>
+             {'<strong>Public URL:</strong> ' + ngrok_url if ngrok_url else 'No ngrok tunnel detected'}
+         </div>
         
         <h2>👥 Account Summary</h2>
         <div class="status {'success' if test_accounts else 'warning'}">
@@ -1073,14 +1253,34 @@ def setup_help():
             {'✅ Can upload immediately (mock Instagram API)' if test_accounts else '⚠️ No test accounts found'}
         </div>
         
-        <div class="status {'error' if real_accounts and not ngrok_url else 'success' if real_accounts else 'warning'}">
-            <strong>Real Instagram Accounts:</strong> {len(real_accounts)}<br>
-            {('❌ Require public URL for uploads' if not ngrok_url else '✅ Ready to upload') if real_accounts else 'ℹ️ No real accounts configured'}
-        </div>
+                 <div class="status {'success' if not real_accounts or (gcs_status['authenticated'] and gcs_status['bucket_exists']) or ngrok_url else 'error'}">
+             <strong>Real Instagram Accounts:</strong> {len(real_accounts)}<br>
+             {('✅ Ready to upload (GCS or ngrok available)' if (gcs_status['authenticated'] and gcs_status['bucket_exists']) or ngrok_url else '❌ Require public URL for uploads') if real_accounts else 'ℹ️ No real accounts configured'}
+         </div>
         
-        <h2>🚀 Quick Setup Options</h2>
-        
-        <h3>Option 1: Use Test Account (Recommended for Development)</h3>
+                 <h2>🚀 Quick Setup Options</h2>
+         
+         <h3>Option 1: Google Cloud Storage (Recommended for Production)</h3>
+         <div class="code">
+             # 1. Create GCS Bucket<br>
+             gcloud auth login<br>
+             gsutil mb gs://{gcs_status['bucket_name']}<br>
+             gsutil iam ch allUsers:objectViewer gs://{gcs_status['bucket_name']}<br><br>
+             
+             # 2. Set up authentication<br>
+             gcloud auth application-default login<br>
+             # OR create service account key and set path in .env<br><br>
+             
+             # 3. Update .env file<br>
+             GCS_PROJECT_ID=your-project-id<br>
+             GCS_BUCKET_NAME={gcs_status['bucket_name']}<br>
+             # GOOGLE_APPLICATION_CREDENTIALS=path/to/key.json (optional)<br><br>
+             
+             # 4. Restart the application<br>
+             # Images will automatically upload to GCS for real accounts
+         </div>
+         
+         <h3>Option 2: Use Test Account (Recommended for Development)</h3>
         <div class="code">
             1. Go to Add Account: <a href="/add_account">http://localhost:5555/add_account</a><br>
             2. Username: test_myaccount<br>
@@ -1089,29 +1289,21 @@ def setup_help():
             5. Upload works immediately (no real Instagram API calls)
         </div>
         
-        <h3>Option 2: Setup Ngrok (For Real Instagram Accounts)</h3>
-        <div class="code">
-            # Install ngrok<br>
-            brew install ngrok  # Mac<br>
-            # or download from https://ngrok.com<br><br>
-            
-            # Run ngrok in a new terminal<br>
-            ngrok http 5555<br><br>
-            
-            # Copy the https URL (e.g., https://abc123.ngrok.io)<br>
-            # Set environment variable (optional):<br>
-            export NGROK_URL=https://abc123.ngrok.io<br><br>
-            
-            # Restart this app - it will auto-detect ngrok
-        </div>
-        
-        <h3>Option 3: Cloud Storage (Production)</h3>
-        <div class="code">
-            # Set up Google Cloud Storage, AWS S3, or similar<br>
-            # Upload images to cloud storage<br>
-            # Use public URLs for Instagram API<br>
-            # Requires code modification for cloud upload
-        </div>
+                 <h3>Option 3: Setup Ngrok (Alternative for Testing)</h3>
+         <div class="code">
+             # Install ngrok<br>
+             brew install ngrok  # Mac<br>
+             # or download from https://ngrok.com<br><br>
+             
+             # Run ngrok in a new terminal<br>
+             ngrok http 5555<br><br>
+             
+             # Copy the https URL (e.g., https://abc123.ngrok.io)<br>
+             # Set environment variable (optional):<br>
+             export NGROK_URL=https://abc123.ngrok.io<br><br>
+             
+             # Restart this app - it will auto-detect ngrok
+         </div>
         
         <h2>📋 Troubleshooting</h2>
         
