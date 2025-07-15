@@ -70,6 +70,20 @@
                         </div>
                     </div>
                     
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="test_mode" name="test_mode" value="true" 
+                                   {{ 'checked' if request.form.get('test_mode') == 'true' else '' }}>
+                            <label class="form-check-label" for="test_mode">
+                                <i class="fas fa-flask text-warning"></i> <strong>Test Mode</strong> - Skip Instagram API validation
+                            </label>
+                            <div class="form-text text-warning">
+                                <small><i class="fas fa-exclamation-triangle"></i> <strong>Use this if:</strong> Your access token is expired, you want to test the app, or Instagram API validation is failing. 
+                                The account will be added without API verification, but posting will require valid credentials.</small>
+                            </div>
+                        </div>
+                    </div>
+                    
                     <div class="d-grid">
                         <button type="submit" class="btn btn-primary btn-lg" id="submitBtn">
                             <i class="fas fa-plus"></i> Add Account
@@ -165,16 +179,27 @@
 <script>
     // Prevent multiple form submissions and provide feedback
     document.addEventListener('DOMContentLoaded', function() {
+        console.log(`🔍 PAGE: DOMContentLoaded fired at ${new Date().toISOString()}`);
+        console.log(`🔍 PAGE: Current URL: ${window.location.href}`);
+        console.log(`🔍 PAGE: Referrer: ${document.referrer}`);
+        
         const form = document.querySelector('form');
         const submitBtn = document.getElementById('submitBtn');
         let isSubmitting = false;
+        
+        console.log(`🔍 PAGE: Form element found: ${!!form}`);
+        console.log(`🔍 PAGE: Submit button found: ${!!submitBtn}`);
 
         if (form && submitBtn) {
             form.addEventListener('submit', function(e) {
+                console.log(`🔍 FORM: Submit event triggered at ${new Date().toISOString()}`);
+                console.log(`🔍 FORM: isSubmitting flag: ${isSubmitting}`);
+                
                 // Prevent multiple submissions
                 if (isSubmitting) {
                     e.preventDefault();
-                    console.log('Form submission blocked - already submitting');
+                    console.log('❌ FORM: Form submission blocked - already submitting');
+                    alert('Please wait, account is being added...');
                     return false;
                 }
 
@@ -183,44 +208,63 @@
                 const instagram_id = document.getElementById('instagram_id').value.trim();
                 const access_token = document.getElementById('access_token').value.trim();
 
-                console.log('Form validation:', { username, instagram_id, access_token_length: access_token.length });
+                console.log('🔍 FORM: Form validation data:', { 
+                    username, 
+                    instagram_id, 
+                    access_token_length: access_token.length,
+                    access_token_start: access_token.substring(0, 20) + '...'
+                });
 
                 if (!username || !instagram_id || !access_token) {
+                    console.log('❌ FORM: Client-side validation failed - missing fields');
                     alert('Please fill in all required fields.');
                     return false;
                 }
 
                 // Show loading state
-                console.log('Setting form to submitting state');
+                console.log('✅ FORM: Setting form to submitting state');
                 isSubmitting = true;
                 submitBtn.disabled = true;
                 submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Adding Account...';
 
-                // Re-enable after 10 seconds in case of errors
+                // Add timestamp to track submission
+                console.log(`🔍 FORM: Form submission started at ${new Date().toISOString()}`);
+
+                // Re-enable after 30 seconds in case of errors (increased from 10s)
                 setTimeout(function() {
                     if (isSubmitting) {
-                        console.log('Re-enabling form after timeout');
+                        console.log('⚠️ FORM: Re-enabling form after 30 second timeout');
                         isSubmitting = false;
                         submitBtn.disabled = false;
                         submitBtn.innerHTML = '<i class="fas fa-plus"></i> Add Account';
+                        alert('Request timed out. Please try again.');
                     }
-                }, 10000);
+                }, 30000);
 
                 // Form will submit normally
+                console.log('✅ FORM: Allowing form submission to proceed');
                 return true;
             });
         }
 
         // Handle browser back button
         window.addEventListener('pageshow', function(event) {
+            console.log(`🔍 PAGE: pageshow event - persisted: ${event.persisted}`);
             if (event.persisted) {
                 // Page was loaded from cache (back button)
+                console.log('🔄 PAGE: Resetting form state due to back button');
                 isSubmitting = false;
                 if (submitBtn) {
                     submitBtn.disabled = false;
                     submitBtn.innerHTML = '<i class="fas fa-plus"></i> Add Account';
                 }
             }
+        });
+        
+        // Track page unload
+        window.addEventListener('beforeunload', function(event) {
+            console.log(`🔍 PAGE: beforeunload event at ${new Date().toISOString()}`);
+            console.log(`🔍 PAGE: isSubmitting at unload: ${isSubmitting}`);
         });
     });
 </script>
