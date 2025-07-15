@@ -9,7 +9,7 @@ import random
 import requests
 import time
 from datetime import datetime, timedelta
-from flask import Flask, render_template, request, jsonify, redirect, url_for, flash
+from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.utils import secure_filename
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -28,6 +28,14 @@ except ImportError:
 
 # Load environment variables
 load_dotenv()
+
+# Add PIL import for text-based story generation
+try:
+    from PIL import Image, ImageDraw, ImageFont
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+    print("Warning: PIL not available for text story generation. Install with: pip install Pillow")
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-secret-key-change-this')
@@ -423,6 +431,173 @@ class InstagramAPI:
         
         if 'error' in publish_result:
             return {"error": f"Publish failed: {publish_result['error']}"}
+        
+        return publish_result
+
+    def create_text_story_image(self, text, width=1080, height=1920):
+        """Create a text-based story image"""
+        if not PIL_AVAILABLE:
+            return None, "PIL not available for text story generation"
+        
+        # Create a new image with gradient background
+        img = Image.new('RGB', (width, height), color='#4A90E2')
+        draw = ImageDraw.Draw(img)
+        
+        # Add gradient effect (simple)
+        for y in range(height):
+            alpha = int(255 * (y / height))
+            color = (74, 144, 226, alpha)  # Blue gradient
+            draw.line([(0, y), (width, y)], fill=(74 + alpha//4, 144 + alpha//8, 226))
+        
+        # Try to use a nice font, fallback to default
+        try:
+            # Try to use system fonts
+            font_size = 80
+            font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", font_size)
+        except:
+            try:
+                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 80)
+            except:
+                font = ImageFont.load_default()
+        
+        # Calculate text position (centered)
+        text_bbox = draw.textbbox((0, 0), text, font=font)
+        text_width = text_bbox[2] - text_bbox[0]
+        text_height = text_bbox[3] - text_bbox[1]
+        
+        # Handle multi-line text
+        lines = text.split('\n')
+        if len(lines) == 1 and text_width > width - 100:
+            # Auto-wrap long text
+            words = text.split()
+            lines = []
+            current_line = ""
+            for word in words:
+                test_line = current_line + (" " if current_line else "") + word
+                test_bbox = draw.textbbox((0, 0), test_line, font=font)
+                if test_bbox[2] - test_bbox[0] <= width - 100:
+                    current_line = test_line
+                else:
+                    if current_line:
+                        lines.append(current_line)
+                    current_line = word
+            if current_line:
+                lines.append(current_line)
+        
+        # Calculate total text height for all lines
+        total_height = len(lines) * (text_height + 20)
+        start_y = (height - total_height) // 2
+        
+        # Draw text with shadow effect
+        for i, line in enumerate(lines):
+            line_bbox = draw.textbbox((0, 0), line, font=font)
+            line_width = line_bbox[2] - line_bbox[0]
+            x = (width - line_width) // 2
+            y = start_y + i * (text_height + 20)
+            
+            # Draw shadow
+            draw.text((x + 3, y + 3), line, font=font, fill='black')
+            # Draw main text
+            draw.text((x, y), line, font=font, fill='white')
+        
+        # Save to temporary file
+        temp_filename = f"story_text_{int(time.time())}.png"
+        temp_path = os.path.join(app.config['UPLOAD_FOLDER'], temp_filename)
+        img.save(temp_path, 'PNG')
+        
+        return temp_path, None
+
+    def upload_story(self, account_id, image_url, access_token=None):
+        """Upload story to Instagram (create story container)"""
+        token = access_token or self.default_token
+        url = f"{self.base_url}/{account_id}/media"
+        
+        print(f"\n=== INSTAGRAM STORY UPLOAD ===")
+        print(f"API URL: {url}")
+        print(f"Account ID: {account_id}")
+        print(f"Image URL: {image_url}")
+        print(f"Access token (first 20 chars): {token[:20] if token else 'None'}...")
+        
+        # Validate inputs
+        if not image_url:
+            return {"error": "Image URL is required for story"}
+            
+        if not image_url.startswith(('http://', 'https://')):
+            return {"error": "Image URL must be a valid HTTP/HTTPS URL accessible by Instagram"}
+        
+        # Prepare request data for story
+        data = {
+            'image_url': image_url,
+            'media_type': 'STORIES',  # This is the key difference for stories
+            'access_token': token
+        }
+        
+        print(f"Story request data: {data}")
+        
+        try:
+            response = requests.post(url, data=data, timeout=30)
+            
+            print(f"Instagram Story API response status: {response.status_code}")
+            
+            if response.status_code == 200:
+                result = response.json()
+                if 'id' in result:
+                    print(f"SUCCESS: Story container created with ID: {result['id']}")
+                    return result
+                else:
+                    error_msg = result.get('error', {}).get('message', 'Unknown error')
+                    print(f"ERROR: Story API success but no ID - {error_msg}")
+                    return {"error": f"Instagram Story API error: {error_msg}"}
+            else:
+                try:
+                    error_data = response.json()
+                    error_message = error_data.get('error', {}).get('message', f'HTTP {response.status_code}')
+                    print(f"ERROR: Story API failed with message: {error_message}")
+                except:
+                    error_message = f"HTTP {response.status_code}: {response.text}"
+                
+                return {"error": f"Failed to upload story: {error_message}"}
+                
+        except requests.exceptions.RequestException as e:
+            return {"error": f"Network error during story upload: {str(e)}"}
+
+    def post_story_to_instagram(self, account_id, image_url, text=None, access_token=None):
+        """Complete flow: upload and publish story to Instagram"""
+        
+        # Check if this is a test account
+        if access_token and access_token.startswith('test'):
+            print(f"\n=== TEST STORY ACCOUNT DETECTED ===")
+            print(f"Account ID: {account_id}")
+            print(f"Image URL: {image_url}")
+            print(f"Text: {text}")
+            print(f"Skipping actual Instagram API call for test account")
+            
+            # Return success for test accounts
+            return {
+                "id": f"test_story_{account_id}_{int(time.time())}",
+                "message": "Test story created successfully (no actual Instagram API call)"
+            }
+        
+        # Step 1: Upload story (create container)
+        upload_result = self.upload_story(account_id, image_url, access_token)
+        
+        if not upload_result:
+            return {"error": "Failed to upload story - no response from Instagram"}
+        
+        if 'error' in upload_result:
+            return {"error": f"Story upload failed: {upload_result['error']}"}
+        
+        if 'id' not in upload_result:
+            return {"error": "Story upload failed - no container ID returned"}
+        
+        # Step 2: Publish story
+        publish_result = self.publish_media(account_id, upload_result['id'], access_token)
+        
+        if not publish_result:
+            return {"error": "Failed to publish story - no response from Instagram"}
+        
+        if 'error' in publish_result:
+            return {"error": f"Story publish failed: {publish_result['error']}"}
         
         return publish_result
 
@@ -1195,6 +1370,213 @@ def test_instagram_api():
         </form>
         <br>
         <p><strong>Note:</strong> This test uses a public image URL from Unsplash to validate that our API request structure is correct.</p>
+    </body>
+    </html>
+    '''
+
+@app.route('/post_story', methods=['GET', 'POST'])
+def post_story():
+    """Post a text-based story to Instagram"""
+    if request.method == 'POST':
+        try:
+            # Get form data
+            account_id = request.form.get('account_id')
+            story_text = request.form.get('story_text', 'This is a Story')
+            
+            # Validate inputs
+            if not account_id:
+                return jsonify({
+                    "status": "error",
+                    "message": "Please select an Instagram account"
+                })
+            
+            if not story_text.strip():
+                return jsonify({
+                    "status": "error", 
+                    "message": "Story text is required"
+                })
+            
+            # Get account
+            account = Account.query.get(account_id)
+            if not account or not account.is_active:
+                return jsonify({
+                    "status": "error",
+                    "message": "Account not found or inactive"
+                })
+            
+            print(f"\n=== POSTING STORY ===")
+            print(f"Account: @{account.username}")
+            print(f"Story Text: {story_text}")
+            
+            # Step 1: Create text-based story image
+            temp_image_path, error = instagram_api.create_text_story_image(story_text)
+            
+            if error:
+                return jsonify({
+                    "status": "error",
+                    "message": f"Failed to create story image: {error}"
+                })
+            
+            # Step 2: Get public URL for the image
+            image_url = None
+            
+            # Check if this is a test account
+            is_test_account = account.access_token and account.access_token.startswith('test')
+            
+            if is_test_account:
+                # For test accounts, use localhost URL
+                filename = os.path.basename(temp_image_path)
+                image_url = f"http://localhost:5555/uploads/{filename}"
+                print(f"Test account - using localhost URL: {image_url}")
+            else:
+                # For real accounts, try to get public URL
+                # Try Google Cloud Storage first
+                gcs = GoogleCloudStorage()
+                if gcs.is_available():
+                    try:
+                        with open(temp_image_path, 'rb') as f:
+                            filename = os.path.basename(temp_image_path)
+                            public_url, gcs_error = gcs.upload_file(f, filename, 'image/png')
+                            
+                        if public_url:
+                            image_url = public_url
+                            print(f"Using GCS URL: {image_url}")
+                        else:
+                            print(f"GCS upload failed: {gcs_error}")
+                    except Exception as e:
+                        print(f"GCS upload error: {e}")
+                
+                # If GCS failed, return error for real accounts
+                if not image_url:
+                    return jsonify({
+                        "status": "error",
+                        "message": "Failed to upload story image to cloud storage. Please ensure Google Cloud Storage is configured."
+                    })
+            
+            # Step 3: Post story to Instagram
+            result = instagram_api.post_story_to_instagram(
+                account.instagram_id,
+                image_url,
+                story_text,
+                account.access_token
+            )
+            
+            # Step 4: Clean up temporary file
+            try:
+                os.remove(temp_image_path)
+            except:
+                pass
+            
+            # Step 5: Save to database
+            if result and 'id' in result:
+                post = Post(
+                    account_id=account_id,
+                    content_type='story',
+                    caption=story_text,
+                    media_urls=json.dumps([image_url]),
+                    scheduled_time=datetime.utcnow(),
+                    actual_post_time=datetime.utcnow(),
+                    status='posted',
+                    instagram_post_id=result['id']
+                )
+                db.session.add(post)
+                db.session.commit()
+                
+                return jsonify({
+                    "status": "success",
+                    "message": f"Story posted successfully to @{account.username}!",
+                    "instagram_id": result['id'],
+                    "account": account.username
+                })
+            else:
+                error_msg = result.get('error', 'Unknown error') if result else 'No response'
+                return jsonify({
+                    "status": "error",
+                    "message": f"Failed to post story: {error_msg}"
+                })
+                
+        except Exception as e:
+            return jsonify({
+                "status": "error",
+                "message": f"Error posting story: {str(e)}"
+            })
+    
+    # GET request - show story form
+    accounts = Account.query.filter_by(is_active=True).all()
+    
+    return '''
+    <html>
+    <head>
+        <title>Post Instagram Story</title>
+        <style>
+            body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }
+            .form-group { margin-bottom: 20px; }
+            label { display: block; margin-bottom: 5px; font-weight: bold; }
+            select, textarea, button { width: 100%; padding: 10px; font-size: 16px; }
+            textarea { height: 100px; resize: vertical; }
+            button { background: #4A90E2; color: white; border: none; border-radius: 5px; cursor: pointer; }
+            button:hover { background: #357ABD; }
+            .result { margin-top: 20px; padding: 15px; border-radius: 5px; }
+            .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+            .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        </style>
+    </head>
+    <body>
+        <h1>📱 Post Instagram Story</h1>
+        <p>Create a text-based story with beautiful gradient background</p>
+        
+        <form id="storyForm">
+            <div class="form-group">
+                <label for="account_id">Select Instagram Account:</label>
+                <select id="account_id" name="account_id" required>
+                    <option value="">Choose an account...</option>
+                    ''' + ''.join([f'<option value="{acc.id}">@{acc.username} ({acc.niche or "General"})</option>' for acc in accounts]) + '''
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="story_text">Story Text:</label>
+                <textarea id="story_text" name="story_text" placeholder="This is a Story" required>This is a Story</textarea>
+            </div>
+            
+            <button type="submit">📱 Post Story</button>
+        </form>
+        
+        <div id="result"></div>
+        
+        <script>
+            document.getElementById('storyForm').addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                const button = document.querySelector('button[type="submit"]');
+                const resultDiv = document.getElementById('result');
+                
+                button.textContent = '⏳ Posting Story...';
+                button.disabled = true;
+                
+                const formData = new FormData(this);
+                
+                fetch('/post_story', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        resultDiv.innerHTML = `<div class="result success">✅ ${data.message}</div>`;
+                    } else {
+                        resultDiv.innerHTML = `<div class="result error">❌ ${data.message}</div>`;
+                    }
+                })
+                .catch(error => {
+                    resultDiv.innerHTML = `<div class="result error">❌ Error: ${error.message}</div>`;
+                })
+                .finally(() => {
+                    button.textContent = '📱 Post Story';
+                    button.disabled = false;
+                });
+            });
+        </script>
     </body>
     </html>
     '''
