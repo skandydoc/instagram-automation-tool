@@ -1,240 +1,250 @@
 # Instagram Automation Tool
 
-A comprehensive Instagram automation tool that supports **Feed Posts**, **Stories**, and **Carousels** with intelligent scheduling and account management.
+A comprehensive Python Flask application for automating Instagram posts across multiple business accounts. Features include content scheduling, hashtag management, caption templates, and analytics tracking.
 
 ## 🚀 Features
 
-### ✅ Post Types Supported
-- **Feed Posts**: Traditional Instagram posts with captions and hashtags
-- **Stories**: Photo stories with text overlays, polls (up to 4 options), mentions, and links
-- **Carousels**: Multi-image posts (up to 20 images) with smart ordering
+- **Multi-Account Management**: Manage up to 20 Instagram business accounts
+- **Smart Scheduling**: Schedule posts with 1 PM and 10 PM IST slots with ±15 minute variance
+- **Content Upload**: Easy drag-and-drop image upload interface
+- **Caption Templates**: Pre-built templates with variable substitution
+- **Hashtag Repository**: Automated hashtag selection from curated collection
+- **Analytics Dashboard**: Track post performance, engagement rates, and success metrics
+- **Real-time Status**: Monitor post status (scheduled, posted, failed)
+- **Error Handling**: Comprehensive error reporting and validation
 
-### ✅ Key Capabilities
-- **Multi-Account Management**: Manage multiple Instagram business accounts
-- **Smart Scheduling**: Automatic scheduling with daily limits (25 posts per account)
-- **Template System**: Pre-built caption and story templates
-- **File Management**: Account-specific folders with cloud storage support
-- **Real-time Preview**: Live preview of posts, stories, and carousels
-- **API Access**: Complete REST API for programmatic posting
-- **Analytics Ready**: Built-in metrics tracking for all post types
+## 🛠️ Installation
 
-### ✅ Advanced Features
-- **Story Auto-Scheduling**: Stories posted every 2 hours (6 AM - 2 AM)
-- **Daily Limits**: Automatic queuing when daily limits are reached
-- **Cloud Storage**: Google Cloud Storage integration with fallback options
-- **Test Mode**: Development-friendly test accounts
-- **Responsive UI**: Modern Bootstrap-based interface
+### Prerequisites
+- Python 3.9+
+- Instagram Business Account(s)
+- Facebook Business Manager access
+- Instagram Graph API access token
 
-## 🛠️ Technology Stack
+### Setup Steps
 
-- **Backend**: Flask (Python)
-- **Database**: SQLAlchemy (SQLite/PostgreSQL)
-- **Frontend**: Bootstrap 5 + JavaScript
-- **Storage**: Google Cloud Storage
-- **Scheduling**: APScheduler
-- **API**: Instagram Graph API
+1. **Clone and Setup Environment**
+   ```bash
+   cd instagram
+   python3 -m venv venv
+   source venv/bin/activate
+   pip install -r requirements.txt
+   ```
 
-## 📋 Prerequisites
+2. **Configure Environment Variables**
+   Update the `.env` file with your credentials:
+   ```bash
+   FLASK_ENV=development
+   SECRET_KEY=your-secret-key-change-this-in-production
+   DATABASE_URL=sqlite:///instagram_automation.db
+   INSTAGRAM_ACCESS_TOKEN=your_instagram_access_token_here
+   TIMEZONE=Asia/Kolkata
+   ```
 
-1. **Instagram Business Account** connected to Facebook Business Manager
-2. **Facebook App** with Instagram permissions
-3. **Python 3.8+**
-4. **Google Cloud Account** (optional, for production file hosting)
+3. **Start the Application**
+   ```bash
+   source venv/bin/activate
+   python app.py
+   ```
 
-## 🚀 Quick Start
+4. **Access the Dashboard**
+   Open http://localhost:5555 in your browser
 
-### 1. Clone Repository
+## 📋 Getting Instagram API Credentials
+
+### Step 1: Facebook Business Manager Setup
+1. Go to [Facebook Business Manager](https://business.facebook.com)
+2. Connect your Instagram Business Account
+3. Create a Facebook App with Instagram permissions
+4. Add your Instagram account to the app
+
+### Step 2: Get Instagram Account ID
+1. In Facebook Business Manager, go to Business Settings
+2. Click on Instagram Accounts
+3. Find your account and copy the Instagram Account ID (17-18 digit number)
+
+### Step 3: Generate Access Token
+1. Go to [Facebook Graph API Explorer](https://developers.facebook.com/tools/explorer)
+2. Select your app and generate a user access token
+3. Convert it to a long-lived token (60 days)
+4. Ensure it has these permissions:
+   - `instagram_basic`
+   - `instagram_content_publish`
+   - `pages_read_engagement`
+   - `pages_show_list`
+
+## 🎯 Usage Guide
+
+### 1. Initialize Database
+- Visit http://localhost:5555/init_db to set up initial data
+- This creates sample hashtags and caption templates
+
+### 2. Add Instagram Account
+1. Go to **Accounts** → **Add New Account**
+2. Enter your Instagram username
+3. Enter your Instagram Account ID (17-18 digits)
+4. Paste your access token
+5. Select account niche (optional)
+6. Click **Add Account**
+
+### 3. Upload and Schedule Content
+1. Go to **Upload Content**
+2. Select the target account
+3. Drag & drop or select an image file
+4. Choose a caption template or write custom text
+5. Select scheduling option:
+   - **Post Now**: Immediate posting
+   - **Next Available Slot**: Schedule for next 1 PM or 10 PM slot
+6. Click **Upload and Schedule**
+
+### 4. Monitor Posts
+- Visit **Posts & Schedule** to view all scheduled and posted content
+- Filter by account, status, or date range
+- View post details, captions, and error messages
+- Track posting success and failure rates
+
+### 5. Account Management
+- View account statistics and posting schedules
+- Monitor posting frequency and success rates
+- Manage account settings and status
+
+## 📊 Dashboard Features
+
+### Main Dashboard
+- **Quick Stats**: Total posts, success rate, pending posts, failed posts
+- **Account Overview**: List of connected accounts with status
+- **Recent Activity**: Latest posts and their status
+- **Quick Actions**: Easy access to main functions
+
+### Analytics
+- Post success/failure rates
+- Account-specific performance metrics
+- Engagement tracking (when available)
+- Historical posting data
+
+## ⚙️ Configuration
+
+### Posting Schedule
+- **Morning Slot**: 1:00 PM IST (±15 minutes variance)
+- **Evening Slot**: 10:00 PM IST (±15 minutes variance)
+- **Timezone**: Asia/Kolkata (IST)
+- **Rate Limiting**: Respects Instagram's API limits
+
+### Content Requirements
+- **Image Formats**: JPG, PNG, GIF
+- **File Size**: Maximum 100MB per image
+- **Carousel**: Up to 10 images per post
+- **Public URLs**: Images must be publicly accessible for Instagram API
+
+### Hashtags
+- Automatically adds 15-20 hashtags from repository
+- Categories: General, Business, Lifestyle, Personal, Daily, Engagement
+- Random selection to avoid repetition
+
+## 🔧 API Testing
+
+Test your Instagram API integration:
 ```bash
-git clone https://github.com/skandydoc/instagram-automation-tool.git
-cd instagram-automation-tool
+curl http://localhost:5555/test_api
 ```
 
-### 2. Install Dependencies
-```bash
-pip install -r requirements.txt
+Expected response:
+```json
+{
+  "status": "success",
+  "instagram_api": "available",
+  "token_validation": {
+    "valid": true,
+    "message": "Valid format"
+  },
+  "base_url": "https://graph.facebook.com/v18.0",
+  "message": "Instagram API integration is working"
+}
 ```
 
-### 3. Environment Setup
-Create a `.env` file:
-```env
-SECRET_KEY=your-secret-key-here
-DATABASE_URL=sqlite:///instagram_automation.db
-GCS_BUCKET_NAME=your-bucket-name
-GCS_PROJECT_ID=your-project-id
-GOOGLE_APPLICATION_CREDENTIALS=path/to/service-account.json
+## 🚨 Troubleshooting
+
+### Common Issues
+
+1. **"Invalid Instagram account or access token"**
+   - Verify your Instagram Account ID is 17-18 digits
+   - Check access token format (starts with "EAA")
+   - Ensure token has required permissions
+   - Confirm account is a Business/Creator account
+
+2. **"Image URL must be a valid HTTP/HTTPS URL"**
+   - Instagram requires publicly accessible image URLs
+   - For testing: ensure app is running on accessible port
+   - For production: use cloud storage (Google Cloud Storage, AWS S3)
+
+3. **Posts failing to publish**
+   - Check Instagram API rate limits
+   - Verify account permissions
+   - Ensure image URLs are accessible
+   - Check error messages in post details
+
+4. **Database errors**
+   - Run `/init_db` to initialize database
+   - Check file permissions in project directory
+   - Verify SQLite is working properly
+
+## 📝 Development Notes
+
+### For Production Deployment
+1. **Environment Variables**: Set proper production values
+2. **Secret Key**: Generate secure random secret key
+3. **Image Storage**: Implement cloud storage (Google Cloud Storage recommended)
+4. **Database**: Consider PostgreSQL for better performance
+5. **SSL**: Use HTTPS for secure API communications
+6. **Rate Limiting**: Implement additional rate limiting if needed
+
+### File Structure
 ```
-
-### 4. Initialize Database
-```bash
-python app.py
-# Visit http://localhost:5001/init_db to initialize
-```
-
-### 5. Add Test Account (Development)
-- Username: `test_demo`
-- Instagram ID: `test123456`
-- Access Token: `test_token_12345`
-
-### 6. Run Application
-```bash
-python app.py
-```
-Visit: http://localhost:5001
-
-## 📖 Usage Guide
-
-### Adding Real Instagram Accounts
-
-1. **Get Instagram Account ID**:
-   - Go to Facebook Business Manager → Business Settings → Instagram Accounts
-   - Copy the 17-18 digit Account ID
-
-2. **Generate Access Token**:
-   - Use Facebook Graph API Explorer
-   - Required permissions: `instagram_basic`, `instagram_content_publish`, `pages_read_engagement`, `pages_show_list`
-   - Convert to long-lived token (60 days)
-
-3. **Add Account**: Go to `/add_account` and fill in the details
-
-### Creating Content
-
-#### Feed Posts
-- Upload single image
-- Add caption (with templates)
-- Schedule: Now, Next Slot, or Specific Time
-- Automatic hashtag addition
-
-#### Stories
-- Upload story image (9:16 ratio recommended)
-- Add text overlays, polls (up to 4 options), mentions, links
-- Auto-scheduling: Every 2 hours during day
-- Real-time preview in story frame
-
-#### Carousels
-- Upload multiple images (2-20)
-- Drag-and-drop reordering
-- Unified caption for all images
-- Smart filename-based ordering
-
-## 🔌 API Documentation
-
-### Base URL: `http://localhost:5001/api`
-
-#### Get Accounts
-```bash
-GET /api/accounts
-```
-
-#### Create Post
-```bash
-POST /api/post
-Content-Type: multipart/form-data
-
-# Feed Post
-account_id=1&post_type=feed&file=@image.jpg&caption=Hello World
-
-# Story
-account_id=1&post_type=story&file=@story.jpg&overlay_text=Story Text
-
-# Carousel
-account_id=1&post_type=carousel&files[]=@img1.jpg&files[]=@img2.jpg&caption=Carousel
-```
-
-#### Check Status
-```bash
-GET /api/status/{post_id}
-```
-
-See `API_DOCUMENTATION.md` for complete API reference.
-
-## 📁 Project Structure
-
-```
-instagram-automation-tool/
+instagram/
 ├── app.py                 # Main Flask application
 ├── requirements.txt       # Python dependencies
+├── .env                  # Environment variables
 ├── templates/            # HTML templates
-│   ├── dashboard.html    # Main dashboard
-│   ├── upload.html       # Upload interface (tabbed)
-│   ├── accounts.html     # Account management
-│   └── posts.html        # Scheduled posts view
-├── uploads/              # File storage
-│   └── {account_id}/     # Account-specific folders
-│       ├── feed/         # Feed post images
-│       ├── stories/      # Story images
-│       └── carousels/    # Carousel images
-├── instance/             # Database storage
-└── README.md
+│   ├── base.html
+│   ├── dashboard.html
+│   ├── accounts.html
+│   ├── add_account.html
+│   ├── upload.html
+│   └── posts.html
+├── uploads/              # Temporary file storage
+└── instagram_automation.db # SQLite database
 ```
 
-## 🎯 Database Schema
+## 🔒 Security Considerations
 
-### Key Tables
-- **Account**: Instagram account management
-- **Post**: All post types with flexible schema
-- **CaptionTemplate**: Reusable caption templates
-- **StoryTemplate**: Story text overlay templates
-- **PostMetrics**: Analytics tracking
-- **PostingSchedule**: Account-specific scheduling
+- Keep access tokens secure and private
+- Regularly rotate access tokens
+- Use environment variables for sensitive data
+- Implement proper authentication for production use
+- Monitor API usage to stay within limits
+- Regular backups of database and content
 
-## 🔧 Configuration
+## 📞 Support
 
-### Daily Limits
-- **Total Posts**: 25 per account per day (all types combined)
-- **Stories**: 10 per day (auto-scheduled every 2 hours)
-- **Feed Posts**: Scheduled at 1 PM and 10 PM IST (±15 min variance)
+For issues related to:
+- **Instagram API**: Check [Instagram Graph API Documentation](https://developers.facebook.com/docs/instagram-api)
+- **Facebook Business Manager**: Visit [Facebook Business Help Center](https://www.facebook.com/business/help)
+- **Application Bugs**: Check error logs and console output
 
-### File Storage
-- **Development**: Local filesystem with localhost URLs
-- **Production**: Google Cloud Storage with public URLs
-- **Fallback**: ngrok tunneling support
+## 🎉 Getting Started Checklist
 
-## 🚀 Deployment
-
-### Google Cloud Run (Recommended)
-1. Set up Google Cloud Storage bucket
-2. Configure service account with storage permissions
-3. Deploy using `gcloud run deploy`
-4. Set environment variables
-
-### Local Development
-- Uses SQLite database
-- Files served from localhost
-- Test accounts for safe development
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create feature branch: `git checkout -b feature-name`
-3. Commit changes: `git commit -m 'Add feature'`
-4. Push to branch: `git push origin feature-name`
-5. Submit pull request
-
-## 📄 License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## 🆘 Support
-
-- **Documentation**: Check `API_DOCUMENTATION.md` and `UpdatedPRD.md`
-- **Issues**: Submit GitHub issues for bugs and feature requests
-- **Setup Help**: Visit `/setup_help` in the application
-
-## 🎯 Roadmap
-
-- [ ] Video support for Stories and Posts
-- [ ] Advanced analytics dashboard
-- [ ] Multi-language caption templates
-- [ ] Instagram Reels support
-- [ ] Bulk upload interface
-- [ ] Advanced scheduling (time zones, holidays)
-- [ ] User authentication system
-- [ ] Team collaboration features
+- [ ] Python environment set up
+- [ ] Dependencies installed
+- [ ] Environment variables configured
+- [ ] Instagram Business account connected to Facebook
+- [ ] Access token generated with proper permissions
+- [ ] Database initialized (`/init_db`)
+- [ ] First account added successfully
+- [ ] Test post uploaded and scheduled
+- [ ] Dashboard showing correct statistics
 
 ---
 
-**Repository**: https://github.com/skandydoc/instagram-automation-tool
+**Ready to automate your Instagram presence!** 🚀
 
-**Live Demo**: *Coming Soon*
-
-Made with ❤️ for Instagram automation 
+Start by visiting http://localhost:5555 and following the setup steps above. 
