@@ -8,7 +8,7 @@ import json
 import random
 import requests
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 from flask import Flask, render_template, request, jsonify, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.utils import secure_filename
@@ -16,6 +16,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.date import DateTrigger
 from dotenv import load_dotenv
 import pytz
+from flask_migrate import Migrate
 
 # Google Cloud Storage imports
 try:
@@ -46,6 +47,7 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 # Initialize database
 db = SQLAlchemy(app)
+migrate = Migrate(app, db)
 
 # Initialize scheduler
 scheduler = BackgroundScheduler()
@@ -76,13 +78,10 @@ class Post(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     account_id = db.Column(db.Integer, db.ForeignKey('accounts.id'), nullable=False)
-    post_type = db.Column(db.String(20), nullable=False, default='feed')  # 'feed', 'story', 'carousel'
-    content_type = db.Column(db.String(50), nullable=False)  # 'image', 'carousel', 'story' (kept for backward compatibility)
+    content_type = db.Column(db.String(50), nullable=False)  # 'image', 'carousel', 'story'
     caption = db.Column(db.Text)
     media_urls = db.Column(db.Text)  # JSON array of image URLs
-    media_files = db.Column(db.Text)  # JSON array of filenames in order (for carousels)
     hashtags = db.Column(db.Text)  # JSON array of hashtags
-    story_elements = db.Column(db.Text)  # JSON object for story interactive elements
     scheduled_time = db.Column(db.DateTime, nullable=False)
     actual_post_time = db.Column(db.DateTime)
     status = db.Column(db.String(50), default='scheduled')  # 'scheduled', 'posted', 'failed', 'cancelled'
@@ -90,22 +89,9 @@ class Post(db.Model):
     error_message = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
-    @staticmethod
-    def get_daily_post_count(account_id, date=None):
-        """Get the number of posts for a specific account on a given date"""
-        if date is None:
-            date = datetime.utcnow().date()
-        
-        start_of_day = datetime.combine(date, datetime.min.time())
-        end_of_day = datetime.combine(date, datetime.max.time())
-        
-        return Post.query.filter(
-            Post.account_id == account_id,
-            Post.scheduled_time >= start_of_day,
-            Post.scheduled_time <= end_of_day,
-            Post.status != 'cancelled'
-        ).count()
+    post_type = db.Column(db.String(20), nullable=False, default='feed')  # 'feed', 'story', 'carousel'
+    media_files = db.Column(db.JSON)
+    story_elements = db.Column(db.JSON)
 
 class PostingSchedule(db.Model):
     """Posting schedule configuration for each account"""
@@ -143,21 +129,17 @@ class CaptionTemplate(db.Model):
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-class StoryTemplate(db.Model):
-    """Templates for story elements"""
+class StoryTemplates(db.Model):
     __tablename__ = 'story_templates'
-    
     id = db.Column(db.Integer, primary_key=True)
     template_name = db.Column(db.String(50), nullable=False)
     template_type = db.Column(db.String(20), nullable=False)  # 'text_overlay', 'poll'
-    template_data = db.Column(db.Text, nullable=False)  # JSON object with template configuration
+    template_data = db.Column(db.JSON, nullable=False)
     is_global = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-class MentionSuggestion(db.Model):
-    """Global mention suggestions for stories"""
+class MentionSuggestions(db.Model):
     __tablename__ = 'mention_suggestions'
-    
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(50), unique=True, nullable=False)
     usage_count = db.Column(db.Integer, default=0)
@@ -165,17 +147,12 @@ class MentionSuggestion(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class PostMetrics(db.Model):
-    """Enhanced analytics for all post types"""
     __tablename__ = 'post_metrics'
-    
     id = db.Column(db.Integer, primary_key=True)
     post_id = db.Column(db.Integer, db.ForeignKey('posts.id'), nullable=False)
-    metric_type = db.Column(db.String(30), nullable=False)  # 'views', 'reach', 'impressions', 'poll_responses', 'link_clicks'
-    metric_value = db.Column(db.Integer, nullable=False)
+    metric_type = db.Column(db.String(50), nullable=False)
+    metric_value = db.Column(db.Integer, default=0)
     recorded_at = db.Column(db.DateTime, default=datetime.utcnow)
-    
-    # Relationships
-    post = db.relationship('Post', backref='metrics', lazy=True)
 
 # Instagram API Integration
 class InstagramAPI:
@@ -213,7 +190,7 @@ class InstagramAPI:
         return True, "Valid format"
     
     def get_account_info(self, account_id, access_token=None):
-        """Get Instagram account information with timeout and better error handling"""
+        """Get Instagram account information"""
         token = access_token or self.default_token
         
         # Validate inputs
@@ -225,70 +202,54 @@ class InstagramAPI:
         if not account_valid:
             return {"error": f"Account ID Error: {account_msg}"}
         
-        # Set timeout to prevent hanging
-        timeout_seconds = 15
-        
         # Try different API endpoints for Instagram
         endpoints_to_try = [
             # Instagram Basic Display API endpoint
             f"{self.base_url}/{account_id}?fields=id,username&access_token={token}",
             # Instagram Graph API for business accounts
             f"{self.base_url}/{account_id}?fields=id,username,account_type&access_token={token}",
-            # Alternative endpoint - check if token can access user's pages/accounts
-            f"https://graph.facebook.com/v18.0/me?fields=id,name&access_token={token}"
+            # Alternative endpoint
+            f"https://graph.facebook.com/v18.0/me/accounts?access_token={token}"
         ]
         
         for i, url in enumerate(endpoints_to_try):
             try:
-                # Use shorter timeout for faster failure detection
-                response = requests.get(url, timeout=timeout_seconds)
-                
-                if i == 2:  # Special handling for me endpoint - just verify token works
-                    if response.status_code == 200:
-                        data = response.json()
-                        if 'error' not in data and 'id' in data:
-                            # Token works, but we still need to check if account_id is accessible
-                            # For now, return success with provided account info
-                            return {
-                                'id': account_id,
-                                'username': 'verified_user',  # Placeholder since we can't get username
-                                'account_type': 'business',
-                                'note': 'Account validated via user token verification'
-                            }
+                if i == 2:  # Special handling for me/accounts endpoint
+                    response = requests.get(url)
+                    response.raise_for_status()
+                    data = response.json()
+                    
+                    # Look for Instagram accounts in the response
+                    if 'data' in data:
+                        for account in data['data']:
+                            if account.get('id') == account_id:
+                                return {
+                                    'id': account.get('id'),
+                                    'username': account.get('name', 'Unknown'),
+                                    'account_type': 'business'
+                                }
                     continue
                 
+                response = requests.get(url)
+                
                 if response.status_code == 200:
-                    try:
-                        data = response.json()
-                        
-                        if 'error' not in data and 'id' in data:
-                            # Success - return the account info
-                            return {
-                                'id': data.get('id', account_id),
-                                'username': data.get('username', 'Unknown'),
-                                'account_type': data.get('account_type', 'business'),
-                                'followers_count': data.get('followers_count', 0),
-                                'media_count': data.get('media_count', 0)
-                            }
-                        else:
-                            error_info = data.get('error', {})
-                            error_message = error_info.get('message', 'Unknown error')
-                            
-                            # Check for specific error types
-                            if 'Invalid OAuth access token' in error_message:
-                                return {"error": "Invalid Access Token: Your access token has expired or is invalid. Please generate a new one."}
-                            elif 'Unsupported get request' in error_message:
-                                return {"error": "Account Access Error: This account is not accessible. Ensure it's a Business account connected to your Facebook app."}
-                            elif 'User request limit reached' in error_message:
-                                return {"error": "Rate Limit Error: Too many requests. Please wait a few minutes and try again."}
-                    except ValueError:
-                        pass  # Continue to next endpoint if JSON parsing fails
+                    data = response.json()
+                    if 'error' not in data:
+                        # Success - return the account info
+                        return {
+                            'id': data.get('id', account_id),
+                            'username': data.get('username', 'Unknown'),
+                            'account_type': data.get('account_type', 'business'),
+                            'followers_count': data.get('followers_count', 0),
+                            'media_count': data.get('media_count', 0)
+                        }
+                    else:
+                        print(f"API Error on endpoint {i+1}: {data.get('error', {}).get('message', 'Unknown error')}")
+                else:
+                    print(f"HTTP {response.status_code} on endpoint {i+1}: {response.text}")
                     
-            except requests.exceptions.Timeout:
-                continue
-            except requests.exceptions.ConnectionError:
-                continue
-            except requests.exceptions.RequestException:
+            except requests.exceptions.RequestException as e:
+                print(f"Network error on endpoint {i+1}: {e}")
                 continue
         
         # If all endpoints fail, return detailed error
@@ -297,8 +258,7 @@ class InstagramAPI:
                    "1. Your Instagram Account ID is correct (17-18 digit number)\n"
                    "2. Your Access Token has proper permissions (instagram_basic, instagram_content_publish)\n"
                    "3. The account is a Business or Creator account\n"
-                   "4. The account is connected to your Facebook app\n"
-                   "5. The access token has not expired (Facebook tokens expire)"
+                   "4. The account is connected to your Facebook app"
         }
     
     def upload_media(self, account_id, image_url, caption, access_token=None):
@@ -456,288 +416,74 @@ class InstagramAPI:
         except requests.exceptions.RequestException as e:
             return {"error": f"Network error during media publish: {str(e)}"}
     
-    def post_to_instagram(self, account_id, image_url, caption, access_token=None):
-        """Complete flow: upload and publish to Instagram"""
-        
-        # Check if this is a test account
-        if access_token and access_token.startswith('test'):
-            print(f"\n=== TEST ACCOUNT DETECTED ===")
-            print(f"Account ID: {account_id}")
-            print(f"Image URL: {image_url}")
-            print(f"Caption: {caption[:100]}...")
-            print(f"Skipping actual Instagram API call for test account")
-            
-            # Return success for test accounts
-            return {
-                "id": f"test_post_{account_id}_{int(time.time())}",
-                "message": "Test post created successfully (no actual Instagram API call)"
-            }
-        
-        # Step 1: Upload media (create container)
-        upload_result = self.upload_media(account_id, image_url, caption, access_token)
-        
-        if not upload_result:
-            return {"error": "Failed to upload media - no response from Instagram"}
-        
-        if 'error' in upload_result:
-            return {"error": f"Upload failed: {upload_result['error']}"}
-        
-        if 'id' not in upload_result:
-            return {"error": "Upload failed - no container ID returned"}
-        
-        # Step 2: Publish media
-        publish_result = self.publish_media(account_id, upload_result['id'], access_token)
-        
-        if not publish_result:
-            return {"error": "Failed to publish media - no response from Instagram"}
-        
-        if 'error' in publish_result:
-            return {"error": f"Publish failed: {publish_result['error']}"}
-        
-        return publish_result
-    
-    def post_story(self, account_id, image_url, story_elements=None, access_token=None):
-        """Post a story with interactive elements using correct Instagram Graph API format"""
+    def post_story(self, account_id, image_url, elements, access_token=None):
         token = access_token or self.default_token
-        
-        # Check if this is a test account
-        if token and token.startswith('test'):
-            print(f"\n=== TEST STORY POST ===")
-            print(f"Account ID: {account_id}")
-            print(f"Image URL: {image_url}")
-            print(f"Story Elements: {story_elements}")
-            return {
-                "id": f"test_story_{account_id}_{int(time.time())}",
-                "message": "Test story created successfully"
-            }
-        
-        # For real accounts, implement story posting with correct API format
-        url = f"{self.base_url}/{account_id}/media"
-        
-        print(f"\n=== STORY API DEBUG ===")
-        print(f"URL: {url}")
-        print(f"Account ID: {account_id}")
-        print(f"Image URL: {image_url}")
-        print(f"Access Token (first 20): {token[:20]}...")
-        
-        # Base story data - using correct Instagram Graph API format
+        url = f"{self.base_url}/{account_id}/stories"
         data = {
             'image_url': image_url,
-            'media_type': 'STORIES',
             'access_token': token
         }
-        
-        # Add story stickers/interactive elements if provided
-        if story_elements:
-            stickers = []
-            
-            # Add text overlay as text sticker
-            if 'text_overlay' in story_elements:
-                text_data = story_elements['text_overlay']
-                text_sticker = {
-                    'sticker_type': 'text',
-                    'text': text_data.get('text', ''),
-                    'text_color': text_data.get('color', '#FFFFFF'),
-                    'x': 0.5,  # Center horizontally
-                    'y': 0.5,  # Center vertically
-                    'width': 0.8,
-                    'height': 0.1
-                }
-                stickers.append(text_sticker)
-            
-            # Add poll sticker with proper format
-            if 'poll' in story_elements:
-                poll_data = story_elements['poll']
-                options = poll_data.get('options', [])
-                
-                # Instagram polls support only 2 options, but we can try with more
-                if len(options) >= 2:
-                    poll_sticker = {
-                        'sticker_type': 'poll',
-                        'question': poll_data.get('question', ''),
-                        'option_0': options[0] if len(options) > 0 else 'Yes',
-                        'option_1': options[1] if len(options) > 1 else 'No',
-                        'x': 0.5,  # Center horizontally  
-                        'y': 0.7,  # Lower part of screen
-                        'width': 0.6,
-                        'height': 0.15
-                    }
-                    stickers.append(poll_sticker)
-            
-            # Add mentions 
-            if 'mentions' in story_elements:
-                mentions = story_elements['mentions']
-                for i, mention in enumerate(mentions[:5]):  # Limit to 5 mentions
-                    mention_sticker = {
-                        'sticker_type': 'mention',
-                        'username': mention.replace('@', ''),
-                        'x': 0.1 + (i * 0.2),  # Spread across screen
-                        'y': 0.8,
-                        'width': 0.15,
-                        'height': 0.05
-                    }
-                    stickers.append(mention_sticker)
-            
-            # Add link sticker
-            if 'link' in story_elements:
-                link_data = story_elements['link']
-                link_sticker = {
-                    'sticker_type': 'link',
-                    'url': link_data.get('url', ''),
-                    'x': 0.5,
-                    'y': 0.9,
-                    'width': 0.8,
-                    'height': 0.08
-                }
-                stickers.append(link_sticker)
-            
-            # Add stickers as JSON if any exist
-            if stickers:
-                data['stickers'] = json.dumps(stickers)
-                print(f"Stickers data: {data['stickers']}")
-        
-        print(f"Final request data: {data}")
-        
-        try:
-            response = requests.post(url, data=data)
-            
-            if response.status_code == 200:
-                result = response.json()
-                if 'id' in result:
-                    return self.publish_media(account_id, result['id'], token)
-                else:
-                    return {"error": f"Story creation failed: {result.get('error', {}).get('message', 'Unknown error')}"}
-            else:
-                error_data = response.json() if response.content else {}
-                error_message = error_data.get('error', {}).get('message', f'HTTP {response.status_code}')
-                return {"error": f"Failed to create story: {error_message}"}
-                
-        except requests.exceptions.RequestException as e:
-            return {"error": f"Network error during story creation: {str(e)}"}
-    
+        # Add interactive elements as stickers
+        stickers = []
+        if 'text_overlay' in elements:
+            stickers.append({
+                'type': 'text',
+                'text': elements['text_overlay']['text'],
+                'x': 0.5,
+                'y': 0.5 if elements['text_overlay']['position'] == 'center' else 0.2 if 'top' else 0.8,
+                'width': 0.8,
+                'height': 0.1
+            })
+        if 'poll' in elements:
+            stickers.append({
+                'type': 'poll',
+                'question': elements['poll']['question'],
+                'options': elements['poll']['options']
+            })
+        if 'mentions' in elements:
+            for mention in elements['mentions']:
+                stickers.append({
+                    'type': 'mention',
+                    'user_id': mention  # Assume username to ID resolution needed
+                })
+        if 'link' in elements:
+            stickers.append({
+                'type': 'link',
+                'url': elements['link']
+            })
+        if stickers:
+            data['attached_media'] = json.dumps(stickers)
+        response = requests.post(url, data=data)
+        return response.json()
+
     def post_carousel(self, account_id, image_urls, caption, access_token=None):
-        """Post a carousel with multiple images"""
         token = access_token or self.default_token
-        
-        # Check if this is a test account
-        if token and token.startswith('test'):
-            print(f"\n=== TEST CAROUSEL POST ===")
-            print(f"Account ID: {account_id}")
-            print(f"Image URLs: {image_urls}")
-            print(f"Caption: {caption[:100]}...")
-            return {
-                "id": f"test_carousel_{account_id}_{int(time.time())}",
-                "message": "Test carousel created successfully"
-            }
-        
-        # For real accounts, implement carousel posting
-        # Step 1: Create individual media containers for each image
-        media_ids = []
-        
-        for i, image_url in enumerate(image_urls):
-            container_url = f"{self.base_url}/{account_id}/media"
-            container_data = {
-                'image_url': image_url,
-                'is_carousel_item': 'true',
-                'access_token': token
-            }
-            
-            try:
-                response = requests.post(container_url, data=container_data)
-                
-                if response.status_code == 200:
-                    result = response.json()
-                    if 'id' in result:
-                        media_ids.append(result['id'])
-                        print(f"Created container {i+1}/{len(image_urls)}: {result['id']}")
-                    else:
-                        return {"error": f"Failed to create container for image {i+1}: {result.get('error', {}).get('message', 'Unknown error')}"}
-                else:
-                    error_data = response.json() if response.content else {}
-                    error_message = error_data.get('error', {}).get('message', f'HTTP {response.status_code}')
-                    return {"error": f"Failed to create container for image {i+1}: {error_message}"}
-                    
-            except requests.exceptions.RequestException as e:
-                return {"error": f"Network error creating container for image {i+1}: {str(e)}"}
-        
-        # Step 2: Create carousel container
-        carousel_url = f"{self.base_url}/{account_id}/media"
-        carousel_data = {
+        children = []
+        for url in image_urls:
+            child = self.upload_media(account_id, url, '', token)  # Create child containers
+            if 'id' in child:
+                children.append(child['id'])
+        if not children:
+            return {'error': 'Failed to create child media'}
+        url = f"{self.base_url}/{account_id}/media"
+        data = {
             'media_type': 'CAROUSEL',
-            'children': ','.join(media_ids),
             'caption': caption,
+            'children': children,
             'access_token': token
         }
-        
-        try:
-            response = requests.post(carousel_url, data=carousel_data)
-            
-            if response.status_code == 200:
-                result = response.json()
-                if 'id' in result:
-                    # Step 3: Publish the carousel
-                    return self.publish_media(account_id, result['id'], token)
-                else:
-                    return {"error": f"Carousel creation failed: {result.get('error', {}).get('message', 'Unknown error')}"}
-            else:
-                error_data = response.json() if response.content else {}
-                error_message = error_data.get('error', {}).get('message', f'HTTP {response.status_code}')
-                return {"error": f"Failed to create carousel: {error_message}"}
-                
-        except requests.exceptions.RequestException as e:
-            return {"error": f"Network error during carousel creation: {str(e)}"}
-    
-    def collect_post_metrics(self, post_id, post_type, access_token=None):
-        """Collect metrics for a published post"""
-        token = access_token or self.default_token
-        
-        # Check if this is a test account
-        if token and token.startswith('test'):
-            # Return mock metrics for test accounts
-            return {
-                'views': random.randint(100, 1000),
-                'reach': random.randint(80, 800),
-                'impressions': random.randint(120, 1200),
-                'engagement': random.randint(10, 100)
-            }
-        
-        # For real accounts, fetch metrics from Instagram API
-        url = f"{self.base_url}/{post_id}/insights"
-        
-        # Determine metrics based on post type
-        if post_type == 'story':
-            metrics = 'impressions,reach,profile_views,story_exits'
-        elif post_type == 'carousel':
-            metrics = 'impressions,reach,saved,video_views'
-        else:  # feed post
-            metrics = 'impressions,reach,saved,likes,comments'
-        
-        params = {
-            'metric': metrics,
-            'access_token': token
-        }
-        
-        try:
-            response = requests.get(url, params=params)
-            
-            if response.status_code == 200:
-                data = response.json()
-                metrics_dict = {}
-                
-                for metric_data in data.get('data', []):
-                    metric_name = metric_data.get('name')
-                    metric_values = metric_data.get('values', [])
-                    if metric_values:
-                        metrics_dict[metric_name] = metric_values[0].get('value', 0)
-                
-                return metrics_dict
-            else:
-                print(f"Failed to fetch metrics for {post_id}: HTTP {response.status_code}")
-                return {}
-                
-        except requests.exceptions.RequestException as e:
-            print(f"Network error fetching metrics for {post_id}: {e}")
-            return {}
+        carousel = requests.post(url, data=data).json()
+        if 'id' not in carousel:
+            return carousel
+        return self.publish_media(account_id, carousel['id'], token)
+
+    def post_to_instagram(self, post):
+        if post.post_type == 'story':
+            return self.post_story(post.account.instagram_id, json.loads(post.media_urls)[0], json.loads(post.story_elements), post.account.access_token)
+        elif post.post_type == 'carousel':
+            return self.post_carousel(post.account.instagram_id, json.loads(post.media_urls), post.caption, post.account.access_token)
+        else:
+            return super().post_to_instagram(post.account.instagram_id, json.loads(post.media_urls)[0], post.caption, post.account.access_token)
 
 # Global Instagram API instance
 instagram_api = InstagramAPI()
@@ -785,77 +531,25 @@ def calculate_post_time(base_time, variance_minutes=15):
     random_offset = random.randint(-variance_seconds, variance_seconds)
     return base_time + timedelta(seconds=random_offset)
 
-# File Upload Helper Functions
-def create_account_folder_structure(account_id):
-    """Create folder structure for account-specific uploads"""
-    base_path = app.config['UPLOAD_FOLDER']
-    folders = ['feed', 'stories', 'carousels']
-    
-    for folder in folders:
-        folder_path = os.path.join(base_path, str(account_id), folder)
-        os.makedirs(folder_path, exist_ok=True)
-    
-    return True
+def check_daily_limit(account_id, scheduled_date):
+    start = scheduled_date.replace(hour=0, minute=0, second=0)
+    end = start + timedelta(days=1)
+    count = Post.query.filter(Post.account_id == account_id, Post.scheduled_time >= start, Post.scheduled_time < end).count()
+    return count < 25, 25 - count
 
-def parse_filename_order(files):
-    """Parse filenames and extract numeric ordering"""
-    file_order = []
-    
-    for file in files:
-        filename = file.filename
-        # Extract numbers from filename
-        import re
-        numbers = re.findall(r'\d+', filename)
-        
-        if numbers:
-            # Use the first number found as order
-            order = int(numbers[0])
+def auto_schedule_stories(account_id, num_stories, start_date):
+    times = []
+    current = datetime.combine(start_date, time(6,0))
+    while len(times) < num_stories:
+        if current.time() >= time(2,0) and current.time() < time(6,0):
+            current = current.replace(hour=6, minute=0) + timedelta(days=1)
+        ok, remaining = check_daily_limit(account_id, current.date())
+        if ok:
+            times.append(current)
+            current += timedelta(hours=2)
         else:
-            # Fallback to alphabetical order
-            order = ord(filename[0].lower()) if filename else 999
-        
-        file_order.append((order, file))
-    
-    # Sort by order
-    file_order.sort(key=lambda x: x[0])
-    
-    return [file for order, file in file_order]
-
-def save_files_to_account_folder(files, account_id, post_type):
-    """Save multiple files to account-specific folder structure"""
-    saved_files = []
-    
-    # Ensure folder structure exists
-    create_account_folder_structure(account_id)
-    
-    # Determine folder based on post type
-    folder_name = 'feed'  # default
-    if post_type == 'story':
-        folder_name = 'stories'
-    elif post_type == 'carousel':
-        folder_name = 'carousels'
-    
-    base_path = os.path.join(app.config['UPLOAD_FOLDER'], str(account_id), folder_name)
-    
-    for file in files:
-        if file and file.filename:
-            filename = secure_filename(file.filename)
-            # Add timestamp to avoid conflicts
-            timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
-            name, ext = os.path.splitext(filename)
-            unique_filename = f"{timestamp}_{name}{ext}"
-            
-            file_path = os.path.join(base_path, unique_filename)
-            file.save(file_path)
-            
-            saved_files.append({
-                'original_name': filename,
-                'saved_name': unique_filename,
-                'file_path': file_path,
-                'relative_path': f"{account_id}/{folder_name}/{unique_filename}"
-            })
-    
-    return saved_files
+            current = current.replace(hour=6, minute=0) + timedelta(days=1)
+    return times
 
 # Google Cloud Storage Functions
 class GoogleCloudStorage:
@@ -884,13 +578,15 @@ class GoogleCloudStorage:
             # Test authentication by trying to get bucket info
             self.bucket = self.client.bucket(self.bucket_name)
             
-            # Skip bucket verification to avoid hanging - just assume it's available
-            # The bucket check will happen when actually uploading files
-            self.authenticated = True
-            print(f"✅ Google Cloud Storage initialized successfully")
-            print(f"   Bucket: {self.bucket_name}")
-            print(f"   Project: {self.project_id or 'default'}")
-            print(f"   Note: Bucket verification skipped for faster startup")
+            # Test if bucket exists and is accessible
+            if self.bucket.exists():
+                self.authenticated = True
+                print(f"✅ Google Cloud Storage initialized successfully")
+                print(f"   Bucket: {self.bucket_name}")
+                print(f"   Project: {self.project_id or 'default'}")
+            else:
+                print(f"⚠️  GCS Bucket '{self.bucket_name}' does not exist or is not accessible")
+                self.authenticated = False
                 
         except DefaultCredentialsError:
             print(f"❌ GCS Authentication failed: No valid credentials found")
@@ -1021,38 +717,13 @@ def execute_scheduled_post(post_id):
                 db.session.commit()
                 return
             
-            # Handle different post types
-            if post.post_type == 'story':
-                # Post story
-                image_url = media_urls[0]
-                story_elements = json.loads(post.story_elements) if post.story_elements else {}
-                
-                result = instagram_api.post_story(
-                    account.instagram_id,
-                    image_url,
-                    story_elements,
-                    account.access_token
-                )
-            elif post.post_type == 'carousel':
-                # Post carousel
-                result = instagram_api.post_carousel(
-                    account.instagram_id,
-                    media_urls,
-                    post.caption,
-                    account.access_token
-                )
-            else:
-                # Default to feed post
-                image_url = media_urls[0]
-                
-                result = instagram_api.post_to_instagram(
-                    account.instagram_id,
-                    image_url,
-                    post.caption,
-                    account.access_token
-                )
+            # For now, use first image (single post)
+            image_url = media_urls[0]
             
-            if result and 'id' in result:
+            # Post to Instagram
+            result = instagram_api.post_to_instagram(post)
+            
+            if 'id' in result:
                 post.status = 'posted'
                 post.instagram_post_id = result['id']
                 post.actual_post_time = datetime.utcnow()
@@ -1114,7 +785,6 @@ def add_account():
         instagram_id = request.form['instagram_id'].strip()
         access_token = request.form['access_token'].strip()
         niche = request.form.get('niche', '').strip()
-        test_mode = request.form.get('test_mode') == 'true'
         
         # Basic validation
         if not username or not instagram_id or not access_token:
@@ -1130,46 +800,35 @@ def add_account():
             flash('An account with this username or Instagram ID already exists', 'error')
             return render_template('add_account.html')
         
-        # Check if this is a test account (for development/testing) or test mode is enabled
+        # Check if this is a test account (for development/testing)
         is_test_account = (username.startswith('test_') or 
                           instagram_id.startswith('test') or 
-                          access_token.startswith('test') or
-                          test_mode)
+                          access_token.startswith('test'))
         
         if is_test_account:
             # Skip API validation for test accounts
-            try:
-                account = Account(
-                    username=username,
-                    instagram_id=instagram_id,
-                    access_token=access_token,
-                    niche=niche,
-                    account_type='business'
-                )
-                
-                db.session.add(account)
-                db.session.commit()
-                
-                # Create default posting schedule
-                schedule = PostingSchedule(
-                    account_id=account.id,
-                    time_slot_1=datetime.strptime('13:00', '%H:%M').time(),  # 1 PM
-                    time_slot_2=datetime.strptime('22:00', '%H:%M').time()   # 10 PM
-                )
-                db.session.add(schedule)
-                db.session.commit()
-                
-                success_msg = f'Account @{username} added successfully!'
-                if test_mode:
-                    success_msg += ' (Test mode - API validation skipped)'
-                else:
-                    success_msg += ' (Test account - no API validation)'
-                flash(success_msg, 'success')
-                return redirect(url_for('accounts'))
-            except Exception as e:
-                db.session.rollback()
-                flash(f'Database error: {str(e)}', 'error')
-                return render_template('add_account.html')
+            account = Account(
+                username=username,
+                instagram_id=instagram_id,
+                access_token=access_token,
+                niche=niche,
+                account_type='business'
+            )
+            
+            db.session.add(account)
+            db.session.commit()
+            
+            # Create default posting schedule
+            schedule = PostingSchedule(
+                account_id=account.id,
+                time_slot_1=datetime.strptime('13:00', '%H:%M').time(),  # 1 PM
+                time_slot_2=datetime.strptime('22:00', '%H:%M').time()   # 10 PM
+            )
+            db.session.add(schedule)
+            db.session.commit()
+            
+            flash(f'Test account @{username} added successfully! (Test mode - no API validation)', 'success')
+            return redirect(url_for('accounts'))
         
         # Validate account with Instagram API for real accounts
         try:
@@ -1180,58 +839,40 @@ def add_account():
                 return render_template('add_account.html')
             
             if 'error' in account_info:
-                error_msg = account_info['error']
-                
-                if 'Invalid OAuth access token' in str(error_msg):
-                    flash('Invalid Access Token: Your access token has expired or is invalid. Please generate a new one.', 'error')
-                elif 'Invalid access token' in str(error_msg):
-                    flash('Invalid access token. Please check your token and permissions.', 'error')
-                elif 'Unsupported get request' in str(error_msg):
-                    flash('Account not accessible. Ensure this is a Business account with proper permissions.', 'error')
-                elif 'User request limit reached' in str(error_msg):
-                    flash('Rate Limit Error: Too many requests. Please wait a few minutes and try again.', 'error')
-                else:
-                    flash(f'Instagram API Error: {error_msg}', 'error')
+                flash(f'Instagram API Error: {account_info["error"]}', 'error')
                 return render_template('add_account.html')
             
             # Verify the account ID matches what Instagram returns
-            returned_id = account_info.get('id')
-            if returned_id != instagram_id:
-                flash(f'Account ID mismatch. Please verify your Instagram Account ID. Instagram returned: {returned_id}', 'error')
+            if account_info.get('id') != instagram_id:
+                flash(f'Account ID mismatch. Instagram returned ID: {account_info.get("id", "unknown")}', 'error')
                 return render_template('add_account.html')
             
             # Use the username from Instagram if available, otherwise use provided username
             instagram_username = account_info.get('username', username)
             
             # Create account
-            try:
-                account = Account(
-                    username=instagram_username,
-                    instagram_id=instagram_id,
-                    access_token=access_token,
-                    niche=niche,
-                    account_type=account_info.get('account_type', 'business')
-                )
-                
-                db.session.add(account)
-                db.session.commit()
-                
-                # Create default posting schedule
-                schedule = PostingSchedule(
-                    account_id=account.id,
-                    time_slot_1=datetime.strptime('13:00', '%H:%M').time(),  # 1 PM
-                    time_slot_2=datetime.strptime('22:00', '%H:%M').time()   # 10 PM
-                )
-                db.session.add(schedule)
-                db.session.commit()
-                
-                success_message = f'Account @{instagram_username} added successfully! Account type: {account_info.get("account_type", "business")}'
-                flash(success_message, 'success')
-                return redirect(url_for('accounts'))
-            except Exception as db_error:
-                db.session.rollback()
-                flash(f'Database error: {str(db_error)}', 'error')
-                return render_template('add_account.html')
+            account = Account(
+                username=instagram_username,
+                instagram_id=instagram_id,
+                access_token=access_token,
+                niche=niche,
+                account_type=account_info.get('account_type', 'business')
+            )
+            
+            db.session.add(account)
+            db.session.commit()
+            
+            # Create default posting schedule
+            schedule = PostingSchedule(
+                account_id=account.id,
+                time_slot_1=datetime.strptime('13:00', '%H:%M').time(),  # 1 PM
+                time_slot_2=datetime.strptime('22:00', '%H:%M').time()   # 10 PM
+            )
+            db.session.add(schedule)
+            db.session.commit()
+            
+            flash(f'Account @{instagram_username} added successfully! Account type: {account_info.get("account_type", "business")}', 'success')
+            return redirect(url_for('accounts'))
             
         except Exception as e:
             flash(f'Error validating account: {str(e)}', 'error')
@@ -1241,7 +882,7 @@ def add_account():
 
 @app.route('/upload', methods=['GET', 'POST'])
 def upload():
-    """Upload and schedule posts - supports Feed, Stories, and Carousels"""
+    """Upload and schedule posts"""
     if request.method == 'POST':
         try:
             # Debug logging
@@ -1251,61 +892,305 @@ def upload():
             print(f"Form data: {dict(request.form)}")
             print(f"Files in request: {list(request.files.keys())}")
             
-            # Get post type and basic form data
-            post_type = request.form.get('post_type', 'feed')
+            # Additional debugging for file upload
+            if 'file' in request.files:
+                file_obj = request.files['file']
+                print(f"File object found: {file_obj}")
+                print(f"File filename: {file_obj.filename}")
+                print(f"File content type: {file_obj.content_type}")
+                print(f"File has content: {bool(file_obj.filename)}")
+            else:
+                print("No 'file' key in request.files")
+                print(f"All files keys: {list(request.files.keys())}")
+                print(f"Raw form data: {request.form}")
+                
+            # Get form data with validation
             account_id = request.form.get('account_id')
+            caption_template = request.form.get('caption_template', '')
+            custom_text = request.form.get('custom_text', '')
             schedule_type = request.form.get('schedule_type', 'now')
-            
-            print(f"Post type: {post_type}")
-            print(f"Account ID: {account_id}")
-            print(f"Schedule type: {schedule_type}")
+            post_type = request.form.get('post_type', 'feed')
             
             # Validate account selection
             if not account_id:
                 flash('Please select an Instagram account', 'error')
+                # Return to form with existing accounts and templates
                 accounts = Account.query.filter_by(is_active=True).all()
                 templates = CaptionTemplate.query.filter_by(is_active=True).all()
                 return render_template('upload.html', accounts=accounts, templates=templates)
             
-            account = Account.query.get(account_id)
-            if not account:
-                flash('Account not found', 'error')
+            # Validate caption content
+            if not custom_text.strip() and not caption_template:
+                flash('Please enter caption text or select a template', 'error')
                 accounts = Account.query.filter_by(is_active=True).all()
                 templates = CaptionTemplate.query.filter_by(is_active=True).all()
                 return render_template('upload.html', accounts=accounts, templates=templates)
             
-            # Check daily post limit (max 25 posts per day per account)
-            daily_count = Post.get_daily_post_count(account_id)
-            if daily_count >= 25:
-                flash('Daily post limit reached (25 posts). Posts will be queued for tomorrow.', 'warning')
-                # Automatically adjust schedule to next day
-                tomorrow = datetime.utcnow().date() + timedelta(days=1)
-                scheduled_time = datetime.combine(tomorrow, datetime.min.time().replace(hour=6))  # 6 AM next day
-            else:
-                scheduled_time = None  # Will be calculated based on schedule_type
+            # Handle file upload with detailed error messages
+            if 'file' not in request.files:
+                flash('No file was uploaded. Please select an image file.', 'error')
+                print("Error: 'file' not in request.files")
+                accounts = Account.query.filter_by(is_active=True).all()
+                templates = CaptionTemplate.query.filter_by(is_active=True).all()
+                return render_template('upload.html', accounts=accounts, templates=templates)
             
-            # Handle different post types
-            if post_type == 'feed':
-                result = handle_feed_post(request, account, schedule_type, scheduled_time)
-            elif post_type == 'story':
-                result = handle_story_post(request, account, schedule_type, scheduled_time)
-            elif post_type == 'carousel':
-                result = handle_carousel_post(request, account, schedule_type, scheduled_time)
-            else:
-                flash('Invalid post type', 'error')
-                return redirect(url_for('upload'))
+            file = request.files['file']
+            print(f"File object: {file}")
+            print(f"File filename: {file.filename}")
+            print(f"File content type: {file.content_type}")
             
-            if result.get('success'):
-                flash(result.get('message', 'Post scheduled successfully!'), 'success')
+            if not file or file.filename == '':
+                flash('No file was selected. Please choose an image file.', 'error')
+                print("Error: File is empty or no filename")
+                accounts = Account.query.filter_by(is_active=True).all()
+                templates = CaptionTemplate.query.filter_by(is_active=True).all()
+                return render_template('upload.html', accounts=accounts, templates=templates)
+            
+            if file:
+                # Save file
+                filename = secure_filename(file.filename)
+                file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                file.save(file_path)
+                
+                # Log the URL issue for debugging
+                print(f"\n=== FILE UPLOAD DEBUG ===")
+                print(f"Saved file: {filename}")
+                print(f"File path: {file_path}")
+                
+                # Check if we're using a test account or real account
+                account = Account.query.get(account_id)
+                if not account:
+                    flash('Account not found', 'error')
+                    accounts = Account.query.filter_by(is_active=True).all()
+                    templates = CaptionTemplate.query.filter_by(is_active=True).all()
+                    return render_template('upload.html', accounts=accounts, templates=templates)
+                
+                is_test_account = account.access_token.startswith('test')
+                
+                if is_test_account:
+                    # For test accounts, use localhost URL (will be handled by test account logic)
+                    image_url = f"http://localhost:5555/uploads/{filename}"
+                    print(f"Test account detected - using localhost URL: {image_url}")
+                else:
+                    # For real accounts, try Google Cloud Storage first, then ngrok
+                    print(f"Real Instagram account detected: @{account.username}")
+                    print(f"Account token: {account.access_token[:20]}...")
+                    
+                    image_url = None
+                    upload_method = None
+                    
+                    # Option 1: Try Google Cloud Storage
+                    if gcs.is_available():
+                        print(f"Attempting upload to Google Cloud Storage...")
+                        
+                        # Re-open the file for GCS upload
+                        try:
+                            with open(file_path, 'rb') as gcs_file:
+                                public_url, gcs_error = gcs.upload_file(
+                                    gcs_file, 
+                                    filename, 
+                                    file.content_type
+                                )
+                                
+                            if public_url:
+                                image_url = public_url
+                                upload_method = "Google Cloud Storage"
+                                print(f"✅ SUCCESS: Using GCS URL: {image_url}")
+                            else:
+                                print(f"❌ GCS upload failed: {gcs_error}")
+                                
+                        except Exception as e:
+                            print(f"❌ GCS upload error: {e}")
+                    
+                    # Option 2: Fallback to ngrok if GCS is not available
+                    if not image_url:
+                        print(f"Trying ngrok fallback...")
+                        ngrok_url = detect_ngrok_url()
+                        if ngrok_url:
+                            image_url = f"{ngrok_url}/uploads/{filename}"
+                            upload_method = "ngrok"
+                            print(f"✅ SUCCESS: Using ngrok URL: {image_url}")
+                    
+                    # Option 3: No public URL available - provide helpful error
+                    if not image_url:
+                        gcs_status = gcs.get_status()
+                        
+                        error_msg = f"""
+🚨 REAL INSTAGRAM ACCOUNT - PUBLIC URL REQUIRED 🚨
+
+Current account: @{account.username} (Real Instagram account)
+
+📊 CURRENT STATUS:
+• Google Cloud Storage: {'✅ Available' if gcs_status['available'] else '❌ Not Available'}
+• GCS Authentication: {'✅ Authenticated' if gcs_status['authenticated'] else '❌ Not Authenticated'}
+• GCS Bucket: {'✅ Exists' if gcs_status['bucket_exists'] else '❌ Missing/Inaccessible'}
+• Ngrok: {'✅ Detected' if detect_ngrok_url() else '❌ Not Running'}
+
+🛠️ SETUP GOOGLE CLOUD STORAGE (Recommended):
+
+1. **Create GCS Bucket:**
+   - Go to Google Cloud Console
+   - Create a new bucket: '{gcs_status['bucket_name']}'
+   - Set public access policies
+
+2. **Authentication Setup:**
+   - Create service account key OR
+   - Run: gcloud auth application-default login
+
+3. **Update Configuration:**
+   - Set GCS_PROJECT_ID in .env file
+   - Set GCS_BUCKET_NAME in .env file
+   - Restart the application
+
+🔧 ALTERNATIVE OPTIONS:
+• Use test account (username starting with 'test_')
+• Setup ngrok: ngrok http 5555
+• Use different image hosting service
+
+📋 Need help? Visit /setup_help for detailed instructions.
+                        """
+                        
+                        flash(error_msg, 'error')
+                        accounts = Account.query.filter_by(is_active=True).all()
+                        templates = CaptionTemplate.query.filter_by(is_active=True).all()
+                        return render_template('upload.html', accounts=accounts, templates=templates)
+                    
+                    print(f"✅ Using {upload_method} for image hosting")
+                
+                print(f"Final image URL: {image_url}")
+                
+                # Account was already retrieved above - no need to get it again
+                
+                # Process caption
+                if caption_template:
+                    caption = process_caption_template(caption_template, custom_text, account.username)
+                else:
+                    caption = custom_text
+                
+                # Add hashtags
+                hashtags = get_random_hashtags(20)
+                if hashtags:
+                    caption += '\n\n' + ' '.join(f'#{tag}' for tag in hashtags)
+                
+                # Determine scheduled time
+                if schedule_type == 'now':
+                    scheduled_time = datetime.utcnow()
+                elif schedule_type == 'next_slot':
+                    # Get next available time slot
+                    now = datetime.now(pytz.timezone('Asia/Kolkata'))
+                    schedule = PostingSchedule.query.filter_by(account_id=account_id, is_active=True).first()
+                    if schedule:
+                        # Check if we can post today
+                        slot1_today = datetime.combine(now.date(), schedule.time_slot_1)
+                        slot2_today = datetime.combine(now.date(), schedule.time_slot_2)
+                        
+                        if now.time() < schedule.time_slot_1:
+                            scheduled_time = calculate_post_time(slot1_today, schedule.variance_minutes)
+                        elif now.time() < schedule.time_slot_2:
+                            scheduled_time = calculate_post_time(slot2_today, schedule.variance_minutes)
+                        else:
+                            # Post tomorrow morning
+                            tomorrow = now.date() + timedelta(days=1)
+                            slot1_tomorrow = datetime.combine(tomorrow, schedule.time_slot_1)
+                            scheduled_time = calculate_post_time(slot1_tomorrow, schedule.variance_minutes)
+                        
+                        # Convert to UTC
+                        ist = pytz.timezone('Asia/Kolkata')
+                        scheduled_time = ist.localize(scheduled_time).astimezone(pytz.UTC).replace(tzinfo=None)
+                    else:
+                        scheduled_time = datetime.utcnow()
+                elif schedule_type == 'auto':
+                    # For auto-scheduling, we need to determine the next available time slot
+                    # This is a simplified example; in a real app, you'd calculate based on
+                    # the account's posting history and current day's schedule.
+                    # For now, let's just set it to a default time for auto-scheduling.
+                    # A more robust solution would involve a queue system.
+                    scheduled_time = datetime.utcnow() + timedelta(hours=2) # Default to 2 hours from now
+                    print(f"Auto-scheduling post for account {account_id} at {scheduled_time}")
+                else:
+                    scheduled_time = datetime.utcnow()
+                
+                if post_type == 'feed':
+                    # Existing feed logic
+                    post = Post(
+                        account_id=account_id,
+                        content_type='image',  # TODO: Update based on post_type
+                        post_type=post_type,
+                        caption=caption,
+                        media_urls=json.dumps([image_url]),
+                        scheduled_time=scheduled_time
+                    )
+                    db.session.add(post)
+                    db.session.commit()
+                    # Schedule post
+                    flash('Post scheduled!', 'success')
+                    return redirect(url_for('posts'))
+                elif post_type == 'story':
+                    file = request.files.get('file')
+                    if not file or file.filename == '':
+                        flash('No image selected for story', 'error')
+                        return redirect(url_for('upload'))
+                    filename = secure_filename(file.filename)
+                    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                    file.save(filepath)
+                    image_url = url_for('uploaded_file', filename=filename, _external=True)
+                    story_elements = {
+                        'text_overlay': {
+                            'text': request.form.get('text_overlay_text', ''),
+                            'position': request.form.get('text_overlay_position', 'center')
+                        },
+                        'poll': {
+                            'question': request.form.get('poll_question', ''),
+                            'options': [request.form.get(f'poll_option{i}', '') for i in range(1,5) if request.form.get(f'poll_option{i}')]
+                        },
+                        'mentions': request.form.getlist('mentions'),  # TODO: Implement
+                        'link': request.form.get('link_url', '')
+                    }
+                    post = Post(
+                        account_id=account_id,
+                        post_type='story',
+                        media_urls=json.dumps([image_url]),
+                        story_elements=json.dumps(story_elements),
+                        caption=request.form.get('caption', ''),
+                        scheduled_time=scheduled_time
+                    )
+                    db.session.add(post)
+                    db.session.commit()
+                    # Schedule post
+                    flash('Story scheduled!', 'success')
+                    return redirect(url_for('posts'))
+                elif post_type == 'carousel':
+                    files = request.files.getlist('files')
+                    if not files:
+                        flash('No images selected for carousel', 'error')
+                        return redirect(url_for('upload'))
+                    media_urls = []
+                    for file in files:
+                        if file.filename == '': continue
+                        filename = secure_filename(file.filename)
+                        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                        file.save(filepath)
+                        media_urls.append(url_for('uploaded_file', filename=filename, _external=True))
+                    if len(media_urls) > 20:
+                        flash('Maximum 20 images allowed', 'error')
+                        return redirect(url_for('upload'))
+                    post = Post(
+                        account_id=account_id,
+                        post_type='carousel',
+                        media_urls=json.dumps(media_urls),
+                        caption=request.form.get('caption', ''),
+                        scheduled_time=scheduled_time
+                    )
+                    db.session.add(post)
+                    db.session.commit()
+                    # Schedule
+                    flash('Carousel scheduled!', 'success')
+                    return redirect(url_for('posts'))
+                
+                flash('Post scheduled successfully!', 'success')
                 return redirect(url_for('posts'))
-            else:
-                flash(result.get('error', 'Unknown error occurred'), 'error')
-                accounts = Account.query.filter_by(is_active=True).all()
-                templates = CaptionTemplate.query.filter_by(is_active=True).all()
-                return render_template('upload.html', accounts=accounts, templates=templates)
             
         except Exception as e:
-            print(f"Error in upload route: {e}")
             flash(f'Error uploading post: {str(e)}', 'error')
             return redirect(url_for('upload'))
     
@@ -1314,407 +1199,6 @@ def upload():
     templates = CaptionTemplate.query.filter_by(is_active=True).all()
     
     return render_template('upload.html', accounts=accounts, templates=templates)
-
-# Post type handlers
-def handle_feed_post(request, account, schedule_type, override_scheduled_time=None):
-    """Handle feed post upload and scheduling"""
-    try:
-        # Get form data
-        caption_template = request.form.get('caption_template', '')
-        custom_text = request.form.get('custom_text', '')
-        
-        # Validate caption content
-        if not custom_text.strip() and not caption_template:
-            return {'error': 'Please enter caption text or select a template'}
-        
-        # Handle file upload
-        if 'file' not in request.files:
-            return {'error': 'No file was uploaded. Please select an image file.'}
-        
-        file = request.files['file']
-        if not file or file.filename == '':
-            return {'error': 'No file was selected. Please choose an image file.'}
-        
-        # Save file to account-specific folder
-        saved_files = save_files_to_account_folder([file], account.id, 'feed')
-        if not saved_files:
-            return {'error': 'Failed to save uploaded file'}
-        
-        saved_file = saved_files[0]
-        
-        # Get public URL for the image
-        image_url = get_public_url_for_file(saved_file, account)
-        if not image_url:
-            return {'error': 'Failed to get public URL for image'}
-        
-        # Process caption
-        if caption_template:
-            caption = process_caption_template(caption_template, custom_text, account.username)
-        else:
-            caption = custom_text
-        
-        # Add hashtags
-        hashtags = get_random_hashtags(20)
-        if hashtags:
-            caption += '\n\n' + ' '.join(f'#{tag}' for tag in hashtags)
-        
-        # Calculate scheduled time
-        if override_scheduled_time:
-            scheduled_time = override_scheduled_time
-        else:
-            scheduled_time = calculate_scheduled_time(schedule_type, account.id)
-        
-        # Create post record
-        post = Post(
-            account_id=account.id,
-            post_type='feed',
-            content_type='image',
-            caption=caption,
-            media_urls=json.dumps([image_url]),
-            media_files=json.dumps([saved_file['saved_name']]),
-            scheduled_time=scheduled_time
-        )
-        
-        db.session.add(post)
-        db.session.commit()
-        
-        # Schedule the post
-        schedule_post_execution(post, schedule_type)
-        
-        return {'success': True, 'message': 'Feed post scheduled successfully!'}
-        
-    except Exception as e:
-        print(f"Error in handle_feed_post: {e}")
-        return {'error': f'Error creating feed post: {str(e)}'}
-
-def handle_story_post(request, account, schedule_type, override_scheduled_time=None):
-    """Handle story post upload and scheduling"""
-    try:
-        # Handle file upload
-        if 'file' not in request.files:
-            return {'error': 'No image was uploaded for the story'}
-        
-        file = request.files['file']
-        if not file or file.filename == '':
-            return {'error': 'No story image was selected'}
-        
-        # Save file to account-specific folder
-        saved_files = save_files_to_account_folder([file], account.id, 'story')
-        if not saved_files:
-            return {'error': 'Failed to save story image'}
-        
-        saved_file = saved_files[0]
-        
-        # Get public URL for the image
-        image_url = get_public_url_for_file(saved_file, account)
-        if not image_url:
-            return {'error': 'Failed to get public URL for story image'}
-        
-        # Parse story elements from form
-        story_elements = {}
-        
-        # Text overlay
-        overlay_text = request.form.get('overlay_text', '').strip()
-        if overlay_text:
-            story_elements['text_overlay'] = {
-                'text': overlay_text,
-                'position': request.form.get('text_position', 'center'),
-                'style': request.form.get('text_style', 'default')
-            }
-        
-        # Poll
-        poll_question = request.form.get('poll_question', '').strip()
-        if poll_question:
-            poll_options = []
-            for i in range(1, 5):  # 4 poll options
-                option = request.form.get(f'poll_option_{i}', '').strip()
-                if option:
-                    poll_options.append(option)
-            
-            if len(poll_options) >= 2:
-                story_elements['poll'] = {
-                    'question': poll_question,
-                    'options': poll_options
-                }
-        
-        # Parse story elements JSON (from JavaScript)
-        story_elements_json = request.form.get('story_elements', '')
-        if story_elements_json:
-            try:
-                js_elements = json.loads(story_elements_json)
-                story_elements.update(js_elements)
-            except json.JSONDecodeError:
-                pass
-        
-        # Calculate scheduled time
-        if override_scheduled_time:
-            scheduled_time = override_scheduled_time
-        else:
-            scheduled_time = calculate_story_schedule_time(schedule_type, account.id)
-        
-        # Create post record
-        post = Post(
-            account_id=account.id,
-            post_type='story',
-            content_type='story',
-            caption='',  # Stories don't have captions
-            media_urls=json.dumps([image_url]),
-            media_files=json.dumps([saved_file['saved_name']]),
-            story_elements=json.dumps(story_elements) if story_elements else None,
-            scheduled_time=scheduled_time
-        )
-        
-        db.session.add(post)
-        db.session.commit()
-        
-        # Schedule the post
-        schedule_post_execution(post, schedule_type)
-        
-        return {'success': True, 'message': 'Story scheduled successfully!'}
-        
-    except Exception as e:
-        print(f"Error in handle_story_post: {e}")
-        return {'error': f'Error creating story: {str(e)}'}
-
-def handle_carousel_post(request, account, schedule_type, override_scheduled_time=None):
-    """Handle carousel post upload and scheduling"""
-    try:
-        # Get caption
-        caption = request.form.get('caption', '').strip()
-        caption_template = request.form.get('caption_template', '')
-        
-        if not caption and not caption_template:
-            return {'error': 'Please enter a caption for your carousel'}
-        
-        # Handle multiple file uploads
-        if 'files[]' not in request.files:
-            return {'error': 'No images were uploaded for the carousel'}
-        
-        files = request.files.getlist('files[]')
-        if not files or len(files) == 0:
-            return {'error': 'No carousel images were selected'}
-        
-        if len(files) > 20:
-            return {'error': 'Maximum 20 images allowed for carousel'}
-        
-        # Parse file order from JavaScript
-        file_order_json = request.form.get('file_order', '')
-        if file_order_json:
-            try:
-                file_order = json.loads(file_order_json)
-                # Reorder files based on the order from frontend
-                files = sort_files_by_order(files, file_order)
-            except json.JSONDecodeError:
-                # Fallback to filename-based ordering
-                files = parse_filename_order(files)
-        else:
-            # Fallback to filename-based ordering
-            files = parse_filename_order(files)
-        
-        # Save files to account-specific folder
-        saved_files = save_files_to_account_folder(files, account.id, 'carousel')
-        if not saved_files:
-            return {'error': 'Failed to save carousel images'}
-        
-        # Get public URLs for all images
-        image_urls = []
-        for saved_file in saved_files:
-            image_url = get_public_url_for_file(saved_file, account)
-            if not image_url:
-                return {'error': f'Failed to get public URL for {saved_file["original_name"]}'}
-            image_urls.append(image_url)
-        
-        # Process caption
-        if caption_template:
-            final_caption = process_caption_template(caption_template, caption, account.username)
-        else:
-            final_caption = caption
-        
-        # Add hashtags
-        hashtags = get_random_hashtags(20)
-        if hashtags:
-            final_caption += '\n\n' + ' '.join(f'#{tag}' for tag in hashtags)
-        
-        # Calculate scheduled time
-        if override_scheduled_time:
-            scheduled_time = override_scheduled_time
-        else:
-            scheduled_time = calculate_scheduled_time(schedule_type, account.id)
-        
-        # Create post record
-        post = Post(
-            account_id=account.id,
-            post_type='carousel',
-            content_type='carousel',
-            caption=final_caption,
-            media_urls=json.dumps(image_urls),
-            media_files=json.dumps([f['saved_name'] for f in saved_files]),
-            scheduled_time=scheduled_time
-        )
-        
-        db.session.add(post)
-        db.session.commit()
-        
-        # Schedule the post
-        schedule_post_execution(post, schedule_type)
-        
-        return {'success': True, 'message': f'Carousel with {len(image_urls)} images scheduled successfully!'}
-        
-    except Exception as e:
-        print(f"Error in handle_carousel_post: {e}")
-        return {'error': f'Error creating carousel: {str(e)}'}
-
-def sort_files_by_order(files, file_order):
-    """Sort files based on the order array from frontend"""
-    file_dict = {f.filename: f for f in files}
-    sorted_files = []
-    
-    for filename in file_order:
-        if filename in file_dict:
-            sorted_files.append(file_dict[filename])
-    
-    # Add any remaining files not in the order
-    for file in files:
-        if file not in sorted_files:
-            sorted_files.append(file)
-    
-    return sorted_files
-
-def get_public_url_for_file(saved_file, account):
-    """Get public URL for a saved file"""
-    is_test_account = account.access_token.startswith('test')
-    
-    if is_test_account:
-        # For test accounts, use localhost URL
-        return f"http://localhost:5555/uploads/{saved_file['relative_path']}"
-    else:
-        # For real accounts, try Google Cloud Storage first, then ngrok
-        if gcs.is_available():
-            try:
-                with open(saved_file['file_path'], 'rb') as gcs_file:
-                    public_url, gcs_error = gcs.upload_file(
-                        gcs_file, 
-                        saved_file['saved_name'], 
-                        'image/jpeg'  # Default content type
-                    )
-                    
-                if public_url:
-                    return public_url
-                else:
-                    print(f"❌ GCS upload failed: {gcs_error}")
-            except Exception as e:
-                print(f"❌ GCS upload error: {e}")
-        
-        # Fallback to ngrok
-        ngrok_url = detect_ngrok_url()
-        if ngrok_url:
-            return f"{ngrok_url}/uploads/{saved_file['relative_path']}"
-        
-        # No public URL available
-        return None
-
-def calculate_scheduled_time(schedule_type, account_id):
-    """Calculate scheduled time based on schedule type"""
-    if schedule_type == 'now':
-        return datetime.utcnow()
-    elif schedule_type == 'next_slot':
-        return get_next_available_slot(account_id)
-    elif schedule_type == 'specific':
-        # This would need to be handled in the calling function with specific time
-        return datetime.utcnow()
-    else:
-        return datetime.utcnow()
-
-def calculate_story_schedule_time(schedule_type, account_id):
-    """Calculate scheduled time for stories with auto-scheduling"""
-    if schedule_type == 'now':
-        return datetime.utcnow()
-    elif schedule_type == 'auto_story':
-        # Auto-schedule stories every 2 hours from 6 AM to 2 AM (10 stories per day)
-        return get_next_story_slot(account_id)
-    elif schedule_type == 'queue':
-        return queue_next_available_time(account_id, 'story')
-    else:
-        return datetime.utcnow()
-
-def get_next_available_slot(account_id):
-    """Get next available posting slot for the account"""
-    now = datetime.now(pytz.timezone('Asia/Kolkata'))
-    schedule = PostingSchedule.query.filter_by(account_id=account_id, is_active=True).first()
-    
-    if schedule:
-        # Check if we can post today
-        slot1_today = datetime.combine(now.date(), schedule.time_slot_1)
-        slot2_today = datetime.combine(now.date(), schedule.time_slot_2)
-        
-        if now.time() < schedule.time_slot_1:
-            scheduled_time = calculate_post_time(slot1_today, schedule.variance_minutes)
-        elif now.time() < schedule.time_slot_2:
-            scheduled_time = calculate_post_time(slot2_today, schedule.variance_minutes)
-        else:
-            # Post tomorrow morning
-            tomorrow = now.date() + timedelta(days=1)
-            slot1_tomorrow = datetime.combine(tomorrow, schedule.time_slot_1)
-            scheduled_time = calculate_post_time(slot1_tomorrow, schedule.variance_minutes)
-        
-        # Convert to UTC
-        ist = pytz.timezone('Asia/Kolkata')
-        return ist.localize(scheduled_time).astimezone(pytz.UTC).replace(tzinfo=None)
-    else:
-        return datetime.utcnow()
-
-def get_next_story_slot(account_id):
-    """Get next available 2-hour story slot"""
-    now = datetime.now(pytz.timezone('Asia/Kolkata'))
-    
-    # Story slots: 6 AM, 8 AM, 10 AM, 12 PM, 2 PM, 4 PM, 6 PM, 8 PM, 10 PM, 12 AM, 2 AM (every 2 hours from 6 AM to 2 AM)
-    story_hours = [6, 8, 10, 12, 14, 16, 18, 20, 22, 0, 2]
-    
-    current_hour = now.hour
-    next_slot = None
-    
-    # Find next available slot today
-    for hour in story_hours:
-        if hour > current_hour:
-            next_slot = datetime.combine(now.date(), datetime.min.time().replace(hour=hour))
-            break
-    
-    # If no slot today, use first slot tomorrow
-    if not next_slot:
-        tomorrow = now.date() + timedelta(days=1)
-        next_slot = datetime.combine(tomorrow, datetime.min.time().replace(hour=6))  # 6 AM tomorrow
-    
-    # Convert to UTC
-    ist = pytz.timezone('Asia/Kolkata')
-    return ist.localize(next_slot).astimezone(pytz.UTC).replace(tzinfo=None)
-
-def queue_next_available_time(account_id, post_type='feed'):
-    """Queue post for next available time based on daily limits"""
-    today = datetime.utcnow().date()
-    daily_count = Post.get_daily_post_count(account_id, today)
-    
-    if daily_count >= 25:
-        # Queue for tomorrow
-        tomorrow = today + timedelta(days=1)
-        return datetime.combine(tomorrow, datetime.min.time().replace(hour=6))  # 6 AM next day
-    else:
-        # Schedule for next available slot today
-        return get_next_available_slot(account_id)
-
-def schedule_post_execution(post, schedule_type):
-    """Schedule the post for execution"""
-    if schedule_type == 'now':
-        # Execute immediately
-        execute_scheduled_post(post.id)
-    else:
-        # Schedule for later
-        scheduler.add_job(
-            func=execute_scheduled_post,
-            trigger=DateTrigger(run_date=post.scheduled_time),
-            args=[post.id],
-            id=f'post_{post.id}',
-            replace_existing=True
-        )
 
 @app.route('/posts')
 def posts():
@@ -1728,375 +1212,6 @@ def uploaded_file(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
 from flask import send_from_directory
-
-@app.route('/api/post', methods=['POST'])
-def api_post():
-    """API endpoint for programmatic posting - supports Feed, Stories, and Carousels"""
-    try:
-        # Check if request is JSON or form data
-        if request.is_json:
-            data = request.get_json()
-            files = None
-        else:
-            data = request.form.to_dict()
-            files = request.files
-        
-        # Required fields
-        account_id = data.get('account_id')
-        post_type = data.get('post_type', 'feed').lower()
-        
-        if not account_id:
-            return jsonify({'error': 'account_id is required'}), 400
-        
-        # Validate account
-        account = Account.query.get(account_id)
-        if not account:
-            return jsonify({'error': 'Account not found'}), 404
-        
-        # Handle different post types
-        if post_type == 'feed':
-            result = api_handle_feed_post(data, files, account)
-        elif post_type == 'story':
-            result = api_handle_story_post(data, files, account)
-        elif post_type == 'carousel':
-            result = api_handle_carousel_post(data, files, account)
-        else:
-            return jsonify({'error': 'Invalid post_type. Must be: feed, story, or carousel'}), 400
-        
-        if result.get('success'):
-            return jsonify({
-                'success': True,
-                'message': result.get('message'),
-                'post_id': result.get('post_id'),
-                'scheduled_time': result.get('scheduled_time')
-            }), 201
-        else:
-            return jsonify({'error': result.get('error')}), 400
-            
-    except Exception as e:
-        print(f"API Error: {e}")
-        return jsonify({'error': f'Internal server error: {str(e)}'}), 500
-
-def api_handle_feed_post(data, files, account):
-    """Handle API feed post creation"""
-    try:
-        caption = data.get('caption', '')
-        caption_template = data.get('caption_template', '')
-        schedule_type = data.get('schedule_type', 'now')
-        
-        if not caption and not caption_template:
-            return {'error': 'caption or caption_template is required'}
-        
-        # Handle file from API
-        if files and 'file' in files:
-            file = files['file']
-        elif data.get('image_url'):
-            # Handle external image URL
-            return api_handle_external_image_post(data, account)
-        else:
-            return {'error': 'file upload or image_url is required'}
-        
-        # Save file
-        saved_files = save_files_to_account_folder([file], account.id, 'feed')
-        if not saved_files:
-            return {'error': 'Failed to save uploaded file'}
-        
-        saved_file = saved_files[0]
-        image_url = get_public_url_for_file(saved_file, account)
-        if not image_url:
-            return {'error': 'Failed to get public URL for image'}
-        
-        # Process caption
-        if caption_template:
-            final_caption = process_caption_template(caption_template, caption, account.username)
-        else:
-            final_caption = caption
-        
-        # Add hashtags if requested
-        if data.get('include_hashtags', True):
-            hashtags = get_random_hashtags(20)
-            if hashtags:
-                final_caption += '\n\n' + ' '.join(f'#{tag}' for tag in hashtags)
-        
-        # Calculate scheduled time
-        scheduled_time = calculate_scheduled_time(schedule_type, account.id)
-        
-        # Create post
-        post = Post(
-            account_id=account.id,
-            post_type='feed',
-            content_type='image',
-            caption=final_caption,
-            media_urls=json.dumps([image_url]),
-            media_files=json.dumps([saved_file['saved_name']]),
-            scheduled_time=scheduled_time
-        )
-        
-        db.session.add(post)
-        db.session.commit()
-        
-        # Schedule execution
-        schedule_post_execution(post, schedule_type)
-        
-        return {
-            'success': True,
-            'message': 'Feed post created successfully',
-            'post_id': post.id,
-            'scheduled_time': scheduled_time.isoformat()
-        }
-        
-    except Exception as e:
-        return {'error': f'Error creating feed post: {str(e)}'}
-
-def api_handle_story_post(data, files, account):
-    """Handle API story post creation"""
-    try:
-        schedule_type = data.get('schedule_type', 'now')
-        
-        # Handle file from API
-        if files and 'file' in files:
-            file = files['file']
-        elif data.get('image_url'):
-            return api_handle_external_story_image(data, account)
-        else:
-            return {'error': 'file upload or image_url is required for story'}
-        
-        # Save file
-        saved_files = save_files_to_account_folder([file], account.id, 'story')
-        if not saved_files:
-            return {'error': 'Failed to save story image'}
-        
-        saved_file = saved_files[0]
-        image_url = get_public_url_for_file(saved_file, account)
-        if not image_url:
-            return {'error': 'Failed to get public URL for story image'}
-        
-        # Parse story elements
-        story_elements = {}
-        
-        # Text overlay
-        if data.get('text_overlay'):
-            story_elements['text_overlay'] = {
-                'text': data.get('text_overlay'),
-                'position': data.get('text_position', 'center'),
-                'style': data.get('text_style', 'default')
-            }
-        
-        # Poll
-        if data.get('poll_question'):
-            poll_options = []
-            for i in range(1, 5):
-                option = data.get(f'poll_option_{i}')
-                if option:
-                    poll_options.append(option)
-            
-            if len(poll_options) >= 2:
-                story_elements['poll'] = {
-                    'question': data.get('poll_question'),
-                    'options': poll_options
-                }
-        
-        # Mentions
-        mentions = data.get('mentions', [])
-        if isinstance(mentions, str):
-            mentions = [m.strip() for m in mentions.split(',') if m.strip()]
-        if mentions:
-            story_elements['mentions'] = mentions
-        
-        # Link
-        if data.get('link_url'):
-            story_elements['link'] = {
-                'url': data.get('link_url'),
-                'text': data.get('link_text', 'Swipe up')
-            }
-        
-        # Calculate scheduled time
-        scheduled_time = calculate_story_schedule_time(schedule_type, account.id)
-        
-        # Create post
-        post = Post(
-            account_id=account.id,
-            post_type='story',
-            content_type='story',
-            caption='',
-            media_urls=json.dumps([image_url]),
-            media_files=json.dumps([saved_file['saved_name']]),
-            story_elements=json.dumps(story_elements) if story_elements else None,
-            scheduled_time=scheduled_time
-        )
-        
-        db.session.add(post)
-        db.session.commit()
-        
-        # Schedule execution
-        schedule_post_execution(post, schedule_type)
-        
-        return {
-            'success': True,
-            'message': 'Story created successfully',
-            'post_id': post.id,
-            'scheduled_time': scheduled_time.isoformat()
-        }
-        
-    except Exception as e:
-        return {'error': f'Error creating story: {str(e)}'}
-
-def api_handle_carousel_post(data, files, account):
-    """Handle API carousel post creation"""
-    try:
-        caption = data.get('caption', '')
-        caption_template = data.get('caption_template', '')
-        schedule_type = data.get('schedule_type', 'now')
-        
-        if not caption and not caption_template:
-            return {'error': 'caption or caption_template is required for carousel'}
-        
-        # Handle multiple files from API
-        if files:
-            file_list = []
-            for key in files.keys():
-                if key.startswith('file'):
-                    file_list.append(files[key])
-            
-            if not file_list:
-                return {'error': 'No files found in request'}
-        elif data.get('image_urls'):
-            return api_handle_external_carousel_images(data, account)
-        else:
-            return {'error': 'file uploads or image_urls array is required for carousel'}
-        
-        if len(file_list) > 20:
-            return {'error': 'Maximum 20 images allowed for carousel'}
-        
-        # Save files
-        saved_files = save_files_to_account_folder(file_list, account.id, 'carousel')
-        if not saved_files:
-            return {'error': 'Failed to save carousel images'}
-        
-        # Get public URLs
-        image_urls = []
-        for saved_file in saved_files:
-            image_url = get_public_url_for_file(saved_file, account)
-            if not image_url:
-                return {'error': f'Failed to get public URL for {saved_file["original_name"]}'}
-            image_urls.append(image_url)
-        
-        # Process caption
-        if caption_template:
-            final_caption = process_caption_template(caption_template, caption, account.username)
-        else:
-            final_caption = caption
-        
-        # Add hashtags if requested
-        if data.get('include_hashtags', True):
-            hashtags = get_random_hashtags(20)
-            if hashtags:
-                final_caption += '\n\n' + ' '.join(f'#{tag}' for tag in hashtags)
-        
-        # Calculate scheduled time
-        scheduled_time = calculate_scheduled_time(schedule_type, account.id)
-        
-        # Create post
-        post = Post(
-            account_id=account.id,
-            post_type='carousel',
-            content_type='carousel',
-            caption=final_caption,
-            media_urls=json.dumps(image_urls),
-            media_files=json.dumps([f['saved_name'] for f in saved_files]),
-            scheduled_time=scheduled_time
-        )
-        
-        db.session.add(post)
-        db.session.commit()
-        
-        # Schedule execution
-        schedule_post_execution(post, schedule_type)
-        
-        return {
-            'success': True,
-            'message': f'Carousel with {len(image_urls)} images created successfully',
-            'post_id': post.id,
-            'scheduled_time': scheduled_time.isoformat()
-        }
-        
-    except Exception as e:
-        return {'error': f'Error creating carousel: {str(e)}'}
-
-def api_handle_external_image_post(data, account):
-    """Handle external image URL for feed posts"""
-    # For external URLs, we need to download and save the image
-    # This is a placeholder - would need implementation based on requirements
-    return {'error': 'External image URLs not yet implemented'}
-
-def api_handle_external_story_image(data, account):
-    """Handle external image URL for stories"""
-    # For external URLs, we need to download and save the image
-    # This is a placeholder - would need implementation based on requirements
-    return {'error': 'External image URLs for stories not yet implemented'}
-
-def api_handle_external_carousel_images(data, account):
-    """Handle external image URLs for carousels"""
-    # For external URLs, we need to download and save the images
-    # This is a placeholder - would need implementation based on requirements
-    return {'error': 'External image URLs for carousels not yet implemented'}
-
-@app.route('/api/status/<int:post_id>')
-def api_post_status(post_id):
-    """Get status of a specific post"""
-    post = Post.query.get(post_id)
-    if not post:
-        return jsonify({'error': 'Post not found'}), 404
-    
-    return jsonify({
-        'id': post.id,
-        'post_type': post.post_type,
-        'status': post.status,
-        'scheduled_time': post.scheduled_time.isoformat() if post.scheduled_time else None,
-        'actual_post_time': post.actual_post_time.isoformat() if post.actual_post_time else None,
-        'instagram_post_id': post.instagram_post_id,
-        'error_message': post.error_message,
-        'account_username': post.account.username
-    })
-
-@app.route('/api/accounts')
-def api_accounts():
-    """List all active accounts"""
-    accounts = Account.query.filter_by(is_active=True).all()
-    
-    return jsonify([{
-        'id': account.id,
-        'username': account.username,
-        'instagram_id': account.instagram_id,
-        'account_type': account.account_type,
-        'niche': account.niche,
-        'is_active': account.is_active
-    } for account in accounts])
-
-@app.route('/api/templates')
-def api_templates():
-    """List all caption templates"""
-    templates = CaptionTemplate.query.filter_by(is_active=True).all()
-    
-    return jsonify([{
-        'id': template.id,
-        'name': template.name,
-        'template': template.template,
-        'category': template.category,
-        'variables': json.loads(template.variables) if template.variables else []
-    } for template in templates])
-
-@app.route('/api/story-templates')
-def api_story_templates():
-    """List all story templates"""
-    templates = StoryTemplate.query.all()
-    
-    return jsonify([{
-        'id': template.id,
-        'template_name': template.template_name,
-        'template_type': template.template_type,
-        'template_data': json.loads(template.template_data) if template.template_data else {}
-    } for template in templates])
 
 @app.route('/test_api')
 def test_api():
@@ -2405,251 +1520,22 @@ def init_db():
     
     return redirect(url_for('index'))
 
-@app.route('/test_story_post')
-def test_story_post():
-    """Test posting a story with polls"""
-    try:
-        # Get the studylogneet account
-        account = Account.query.filter_by(username='studylogneet').first()
-        if not account:
-            return jsonify({"error": "Account not found"}), 404
-        
-        # Create a simple text story with polls
-        story_text = "Hi - This is a story with polls."
-        
-        # Story elements with poll (4 options as requested)
-        story_elements = {
-            'text_overlay': {
-                'text': story_text,
-                'color': '#FFFFFF',
-                'position': 'center'
-            },
-            'poll': {
-                'question': 'What\'s your favorite time of day?',
-                'options': ['Morning', 'Afternoon', 'Evening', 'Night']
-            }
-        }
-        
-        # Since the real API has authorization issues, let's use test mode
-        # by temporarily modifying the access token
-        original_token = account.access_token
-        test_token = "test_" + original_token[:20]
-        
-        # For now, let's use a placeholder image URL 
-        image_url = "https://via.placeholder.com/1080x1920/4267B2/FFFFFF?text=Hi+-+This+is+a+story+with+polls"
-        
-        # Post the story using test mode
-        result = instagram_api.post_story(
-            account.instagram_id,
-            image_url,
-            story_elements,
-            test_token  # This will trigger test mode
+@app.route('/api/templates', methods=['GET', 'POST'])
+def api_templates():
+    if request.method == 'POST':
+        data = request.json
+        template = StoryTemplates(
+            template_name=data['name'],
+            template_type=data['type'],
+            template_data=data['data']
         )
-        
-        # Also create a post record in the database
-        from datetime import datetime
-        post = Post(
-            account_id=account.id,
-            post_type='story',
-            content_type='story',
-            caption=story_text,
-            media_urls=json.dumps([image_url]),
-            story_elements=json.dumps(story_elements),
-            scheduled_time=datetime.utcnow(),
-            actual_post_time=datetime.utcnow(),
-            status='posted' if 'id' in result else 'failed',
-            instagram_post_id=result.get('id', ''),
-            error_message=result.get('error', '') if 'error' in result else None
-        )
-        
-        db.session.add(post)
+        db.session.add(template)
         db.session.commit()
-        
-        return jsonify({
-            "status": "success", 
-            "message": "Test story posted successfully!",
-            "story_details": {
-                "text": story_text,
-                "poll_question": story_elements['poll']['question'],
-                "poll_options": story_elements['poll']['options'],
-                "image_url": image_url
-            },
-            "instagram_post_id": result.get('id'),
-            "account": account.username,
-            "post_id": post.id,
-            "note": "Posted in test mode due to Instagram API authorization issues. Real API requires Facebook app configuration."
-        })
-            
-    except Exception as e:
-        return jsonify({"error": f"Exception: {str(e)}"}), 500
-
-@app.route('/test_instagram_permissions')
-def test_instagram_permissions():
-    """Test Instagram API permissions for the account"""
-    try:
-        # Get the studylogneet account
-        account = Account.query.filter_by(username='studylogneet').first()
-        if not account:
-            return jsonify({"error": "Account not found"}), 404
-        
-        # Test different API calls to understand permissions
-        token = account.access_token
-        account_id = account.instagram_id
-        
-        results = {}
-        
-        # Test 1: Basic account info
-        try:
-            url1 = f"https://graph.facebook.com/v18.0/{account_id}?fields=id,username,account_type&access_token={token}"
-            response1 = requests.get(url1, timeout=15)
-            results['account_info'] = {
-                'status': response1.status_code,
-                'data': response1.json() if response1.content else None
-            }
-        except Exception as e:
-            results['account_info'] = {'error': str(e)}
-        
-        # Test 2: Check user's Facebook pages
-        try:
-            url2 = f"https://graph.facebook.com/v18.0/me/accounts?access_token={token}"
-            response2 = requests.get(url2, timeout=15)
-            results['facebook_pages'] = {
-                'status': response2.status_code,
-                'data': response2.json() if response2.content else None
-            }
-        except Exception as e:
-            results['facebook_pages'] = {'error': str(e)}
-        
-        # Test 3: Try to get the user info directly
-        try:
-            url3 = f"https://graph.facebook.com/v18.0/me?fields=id,name&access_token={token}"
-            response3 = requests.get(url3, timeout=15)
-            results['user_info'] = {
-                'status': response3.status_code,
-                'data': response3.json() if response3.content else None
-            }
-        except Exception as e:
-            results['user_info'] = {'error': str(e)}
-        
-        # Test 4: Check token permissions
-        try:
-            url4 = f"https://graph.facebook.com/v18.0/me/permissions?access_token={token}"
-            response4 = requests.get(url4, timeout=15)
-            results['permissions'] = {
-                'status': response4.status_code,
-                'data': response4.json() if response4.content else None
-            }
-        except Exception as e:
-            results['permissions'] = {'error': str(e)}
-        
-        return jsonify({
-            "account": {
-                "username": account.username,
-                "instagram_id": account.instagram_id,
-                "access_token_start": token[:20] + "..."
-            },
-            "api_tests": results
-        })
-        
-    except Exception as e:
-        return jsonify({"error": f"Exception: {str(e)}"}), 500
-
-@app.route('/post_story_with_polls', methods=['POST'])
-def post_story_with_polls():
-    """Create and post a story with polls through the API"""
-    try:
-        # Get the studylogneet account
-        account = Account.query.filter_by(username='studylogneet').first()
-        if not account:
-            return jsonify({"error": "Account not found"}), 404
-        
-        # Get parameters from request
-        story_text = request.form.get('story_text', 'Hi - This is a story with polls.')
-        poll_question = request.form.get('poll_question', 'What\'s your favorite time of day?')
-        poll_options = [
-            request.form.get('option1', 'Morning'),
-            request.form.get('option2', 'Afternoon'), 
-            request.form.get('option3', 'Evening'),
-            request.form.get('option4', 'Night')
-        ]
-        
-        # Filter out empty options
-        poll_options = [opt.strip() for opt in poll_options if opt.strip()]
-        
-        # Ensure we have at least 2 options
-        while len(poll_options) < 2:
-            poll_options.append(f'Option {len(poll_options) + 1}')
-        
-        # Create story elements
-        story_elements = {
-            'text_overlay': {
-                'text': story_text,
-                'color': '#FFFFFF',
-                'position': 'center'
-            },
-            'poll': {
-                'question': poll_question,
-                'options': poll_options[:4]  # Limit to 4 options
-            }
-        }
-        
-        # Create a simple background image with the text
-        image_url = f"https://via.placeholder.com/1080x1920/4267B2/FFFFFF?text={story_text.replace(' ', '+')}"
-        
-        # Use test mode for now due to API issues
-        test_token = "test_" + account.access_token[:20]
-        
-        # Post the story
-        result = instagram_api.post_story(
-            account.instagram_id,
-            image_url,
-            story_elements,
-            test_token
-        )
-        
-        # Create post record in database
-        from datetime import datetime
-        post = Post(
-            account_id=account.id,
-            post_type='story',
-            content_type='story',
-            caption=story_text,
-            media_urls=json.dumps([image_url]),
-            story_elements=json.dumps(story_elements),
-            scheduled_time=datetime.utcnow(),
-            actual_post_time=datetime.utcnow(),
-            status='posted' if 'id' in result else 'failed',
-            instagram_post_id=result.get('id', ''),
-            error_message=result.get('error', '') if 'error' in result else None
-        )
-        
-        db.session.add(post)
-        db.session.commit()
-        
-        if request.headers.get('Content-Type') == 'application/json':
-            return jsonify({
-                "status": "success",
-                "message": "Story with polls posted successfully!",
-                "story_details": {
-                    "text": story_text,
-                    "poll_question": poll_question,
-                    "poll_options": poll_options,
-                    "image_url": image_url
-                },
-                "post_id": post.id
-            })
-        else:
-            flash(f'Story with polls posted successfully! Text: "{story_text}", Poll: "{poll_question}"', 'success')
-            return redirect(url_for('posts'))
-            
-    except Exception as e:
-        if request.headers.get('Content-Type') == 'application/json':
-            return jsonify({"error": f"Exception: {str(e)}"}), 500
-        else:
-            flash(f'Error posting story: {str(e)}', 'error')
-            return redirect(url_for('upload'))
+        return jsonify({'id': template.id}), 201
+    templates = StoryTemplates.query.all()
+    return jsonify([{'id': t.id, 'name': t.template_name, 'type': t.template_type} for t in templates])
 
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
-    app.run(debug=True, port=8080) 
+    app.run(debug=True, port=5555) 
