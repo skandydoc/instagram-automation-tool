@@ -23,7 +23,7 @@
                         <div class="input-group">
                             <span class="input-group-text">@</span>
                             <input type="text" class="form-control" id="username" name="username" required
-                                   placeholder="your_instagram_username">
+                                   placeholder="your_instagram_username" value="{{ request.form.get('username', '') }}">
                         </div>
                         <div class="form-text">Enter your Instagram username without the @ symbol</div>
                     </div>
@@ -31,7 +31,7 @@
                     <div class="mb-3">
                         <label for="instagram_id" class="form-label">Instagram Account ID</label>
                         <input type="text" class="form-control" id="instagram_id" name="instagram_id" required
-                               placeholder="17841405309211844">
+                               placeholder="17841405309211844" value="{{ request.form.get('instagram_id', '') }}">
                         <div class="form-text">
                             This is your Instagram Business Account ID (17-18 digit number). 
                             Find it in Facebook Business Manager > Business Settings > Instagram Accounts.
@@ -42,7 +42,7 @@
                     <div class="mb-3">
                         <label for="access_token" class="form-label">Access Token</label>
                         <textarea class="form-control" id="access_token" name="access_token" rows="3" required
-                                  placeholder="EAABs..."></textarea>
+                                  placeholder="EAABs...">{{ request.form.get('access_token', '') }}</textarea>
                         <div class="form-text">
                             Your Instagram Graph API access token. Should start with "EAA" and be quite long.
                             <br><strong>Required permissions:</strong> instagram_basic, instagram_content_publish, pages_read_engagement, pages_show_list
@@ -53,17 +53,17 @@
                         <label for="niche" class="form-label">Account Niche (Optional)</label>
                         <select class="form-select" id="niche" name="niche">
                             <option value="">Select a niche...</option>
-                            <option value="lifestyle">Lifestyle</option>
-                            <option value="business">Business</option>
-                            <option value="fitness">Fitness</option>
-                            <option value="food">Food</option>
-                            <option value="travel">Travel</option>
-                            <option value="fashion">Fashion</option>
-                            <option value="photography">Photography</option>
-                            <option value="technology">Technology</option>
-                            <option value="education">Education</option>
-                            <option value="entertainment">Entertainment</option>
-                            <option value="other">Other</option>
+                            <option value="lifestyle" {{ 'selected' if request.form.get('niche') == 'lifestyle' else '' }}>Lifestyle</option>
+                            <option value="business" {{ 'selected' if request.form.get('niche') == 'business' else '' }}>Business</option>
+                            <option value="fitness" {{ 'selected' if request.form.get('niche') == 'fitness' else '' }}>Fitness</option>
+                            <option value="food" {{ 'selected' if request.form.get('niche') == 'food' else '' }}>Food</option>
+                            <option value="travel" {{ 'selected' if request.form.get('niche') == 'travel' else '' }}>Travel</option>
+                            <option value="fashion" {{ 'selected' if request.form.get('niche') == 'fashion' else '' }}>Fashion</option>
+                            <option value="photography" {{ 'selected' if request.form.get('niche') == 'photography' else '' }}>Photography</option>
+                            <option value="technology" {{ 'selected' if request.form.get('niche') == 'technology' else '' }}>Technology</option>
+                            <option value="education" {{ 'selected' if request.form.get('niche') == 'education' else '' }}>Education</option>
+                            <option value="entertainment" {{ 'selected' if request.form.get('niche') == 'entertainment' else '' }}>Entertainment</option>
+                            <option value="other" {{ 'selected' if request.form.get('niche') == 'other' else '' }}>Other</option>
                         </select>
                         <div class="form-text">
                             Select the primary niche/category for this account to help with content organization.
@@ -71,7 +71,7 @@
                     </div>
                     
                     <div class="d-grid">
-                        <button type="submit" class="btn btn-primary btn-lg">
+                        <button type="submit" class="btn btn-primary btn-lg" id="submitBtn">
                             <i class="fas fa-plus"></i> Add Account
                         </button>
                     </div>
@@ -159,4 +159,69 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Prevent multiple form submissions and provide feedback
+    document.addEventListener('DOMContentLoaded', function() {
+        const form = document.querySelector('form');
+        const submitBtn = document.getElementById('submitBtn');
+        let isSubmitting = false;
+
+        if (form && submitBtn) {
+            form.addEventListener('submit', function(e) {
+                // Prevent multiple submissions
+                if (isSubmitting) {
+                    e.preventDefault();
+                    console.log('Form submission blocked - already submitting');
+                    return false;
+                }
+
+                // Basic client-side validation
+                const username = document.getElementById('username').value.trim();
+                const instagram_id = document.getElementById('instagram_id').value.trim();
+                const access_token = document.getElementById('access_token').value.trim();
+
+                console.log('Form validation:', { username, instagram_id, access_token_length: access_token.length });
+
+                if (!username || !instagram_id || !access_token) {
+                    alert('Please fill in all required fields.');
+                    return false;
+                }
+
+                // Show loading state
+                console.log('Setting form to submitting state');
+                isSubmitting = true;
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Adding Account...';
+
+                // Re-enable after 10 seconds in case of errors
+                setTimeout(function() {
+                    if (isSubmitting) {
+                        console.log('Re-enabling form after timeout');
+                        isSubmitting = false;
+                        submitBtn.disabled = false;
+                        submitBtn.innerHTML = '<i class="fas fa-plus"></i> Add Account';
+                    }
+                }, 10000);
+
+                // Form will submit normally
+                return true;
+            });
+        }
+
+        // Handle browser back button
+        window.addEventListener('pageshow', function(event) {
+            if (event.persisted) {
+                // Page was loaded from cache (back button)
+                isSubmitting = false;
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = '<i class="fas fa-plus"></i> Add Account';
+                }
+            }
+        });
+    });
+</script>
 {% endblock %} 

@@ -1035,31 +1035,46 @@ def index():
 @app.route('/accounts')
 def accounts():
     """Account management page"""
+    print(f"🔍 ACCOUNTS: Page accessed")
     accounts = Account.query.all()
+    print(f"🔍 ACCOUNTS: Found {len(accounts)} accounts")
+    for account in accounts:
+        print(f"🔍 ACCOUNTS: - {account.username} (ID: {account.id}, Active: {account.is_active})")
     return render_template('accounts.html', accounts=accounts)
 
 @app.route('/add_account', methods=['GET', 'POST'])
 def add_account():
     """Add new Instagram account"""
     if request.method == 'POST':
+        print(f"🔍 ADD_ACCOUNT: POST request started")
+        print(f"🔍 ADD_ACCOUNT: Form data keys: {list(request.form.keys())}")
+        
         username = request.form['username'].strip()
         instagram_id = request.form['instagram_id'].strip()
         access_token = request.form['access_token'].strip()
         niche = request.form.get('niche', '').strip()
         
+        print(f"🔍 ADD_ACCOUNT: Extracted data - username: {username}, instagram_id: {instagram_id}, niche: {niche}")
+        print(f"🔍 ADD_ACCOUNT: Access token length: {len(access_token)}")
+        
         # Basic validation
         if not username or not instagram_id or not access_token:
+            print(f"❌ ADD_ACCOUNT: Validation failed - missing required fields")
             flash('All required fields must be filled out', 'error')
             return render_template('add_account.html')
         
         # Check if account already exists
+        print(f"🔍 ADD_ACCOUNT: Checking for existing accounts")
         existing_account = Account.query.filter(
             (Account.username == username) | (Account.instagram_id == instagram_id)
         ).first()
         
         if existing_account:
+            print(f"❌ ADD_ACCOUNT: Account already exists - username: {existing_account.username}, id: {existing_account.instagram_id}")
             flash('An account with this username or Instagram ID already exists', 'error')
             return render_template('add_account.html')
+        
+        print(f"✅ ADD_ACCOUNT: No existing account found, proceeding")
         
         # Check if this is a test account (for development/testing)
         is_test_account = (username.startswith('test_') or 
@@ -1067,78 +1082,115 @@ def add_account():
                           access_token.startswith('test'))
         
         if is_test_account:
+            print(f"🧪 ADD_ACCOUNT: Processing test account")
             # Skip API validation for test accounts
-            account = Account(
-                username=username,
-                instagram_id=instagram_id,
-                access_token=access_token,
-                niche=niche,
-                account_type='business'
-            )
-            
-            db.session.add(account)
-            db.session.commit()
-            
-            # Create default posting schedule
-            schedule = PostingSchedule(
-                account_id=account.id,
-                time_slot_1=datetime.strptime('13:00', '%H:%M').time(),  # 1 PM
-                time_slot_2=datetime.strptime('22:00', '%H:%M').time()   # 10 PM
-            )
-            db.session.add(schedule)
-            db.session.commit()
-            
-            flash(f'Test account @{username} added successfully! (Test mode - no API validation)', 'success')
-            return redirect(url_for('accounts'))
+            try:
+                account = Account(
+                    username=username,
+                    instagram_id=instagram_id,
+                    access_token=access_token,
+                    niche=niche,
+                    account_type='business'
+                )
+                
+                print(f"🔍 ADD_ACCOUNT: Adding account to database")
+                db.session.add(account)
+                db.session.commit()
+                print(f"✅ ADD_ACCOUNT: Account saved with ID: {account.id}")
+                
+                # Create default posting schedule
+                schedule = PostingSchedule(
+                    account_id=account.id,
+                    time_slot_1=datetime.strptime('13:00', '%H:%M').time(),  # 1 PM
+                    time_slot_2=datetime.strptime('22:00', '%H:%M').time()   # 10 PM
+                )
+                print(f"🔍 ADD_ACCOUNT: Adding posting schedule")
+                db.session.add(schedule)
+                db.session.commit()
+                print(f"✅ ADD_ACCOUNT: Schedule saved")
+                
+                flash(f'Test account @{username} added successfully! (Test mode - no API validation)', 'success')
+                print(f"✅ ADD_ACCOUNT: Success flash message set, redirecting to accounts")
+                return redirect(url_for('accounts'))
+            except Exception as e:
+                print(f"❌ ADD_ACCOUNT: Database error creating test account: {e}")
+                db.session.rollback()
+                flash(f'Database error: {str(e)}', 'error')
+                return render_template('add_account.html')
         
         # Validate account with Instagram API for real accounts
+        print(f"🔍 ADD_ACCOUNT: Validating real account with Instagram API")
         try:
             account_info = instagram_api.get_account_info(instagram_id, access_token)
+            print(f"🔍 ADD_ACCOUNT: Instagram API response: {account_info}")
             
             if not account_info:
+                print(f"❌ ADD_ACCOUNT: No response from Instagram API")
                 flash('Unable to connect to Instagram API. Please try again later.', 'error')
                 return render_template('add_account.html')
             
             if 'error' in account_info:
-                flash(f'Instagram API Error: {account_info["error"]}', 'error')
+                print(f"❌ ADD_ACCOUNT: Instagram API Error: {account_info['error']}")
+                error_msg = account_info['error']
+                if 'Invalid access token' in str(error_msg):
+                    flash('Invalid access token. Please check your token and permissions.', 'error')
+                elif 'Unsupported get request' in str(error_msg):
+                    flash('Account not accessible. Ensure this is a Business account with proper permissions.', 'error')
+                else:
+                    flash(f'Instagram API Error: {error_msg}', 'error')
                 return render_template('add_account.html')
             
             # Verify the account ID matches what Instagram returns
             if account_info.get('id') != instagram_id:
-                flash(f'Account ID mismatch. Instagram returned ID: {account_info.get("id", "unknown")}', 'error')
+                print(f"❌ ADD_ACCOUNT: Account ID mismatch - expected: {instagram_id}, got: {account_info.get('id')}")
+                flash(f'Account ID mismatch. Please verify your Instagram Account ID. Instagram returned: {account_info.get("id", "unknown")}', 'error')
                 return render_template('add_account.html')
             
             # Use the username from Instagram if available, otherwise use provided username
             instagram_username = account_info.get('username', username)
             
             # Create account
-            account = Account(
-                username=instagram_username,
-                instagram_id=instagram_id,
-                access_token=access_token,
-                niche=niche,
-                account_type=account_info.get('account_type', 'business')
-            )
-            
-            db.session.add(account)
-            db.session.commit()
-            
-            # Create default posting schedule
-            schedule = PostingSchedule(
-                account_id=account.id,
-                time_slot_1=datetime.strptime('13:00', '%H:%M').time(),  # 1 PM
-                time_slot_2=datetime.strptime('22:00', '%H:%M').time()   # 10 PM
-            )
-            db.session.add(schedule)
-            db.session.commit()
-            
-            flash(f'Account @{instagram_username} added successfully! Account type: {account_info.get("account_type", "business")}', 'success')
-            return redirect(url_for('accounts'))
+            print(f"🔍 ADD_ACCOUNT: Creating real account with validated data")
+            try:
+                account = Account(
+                    username=instagram_username,
+                    instagram_id=instagram_id,
+                    access_token=access_token,
+                    niche=niche,
+                    account_type=account_info.get('account_type', 'business')
+                )
+                
+                print(f"🔍 ADD_ACCOUNT: Adding real account to database")
+                db.session.add(account)
+                db.session.commit()
+                print(f"✅ ADD_ACCOUNT: Real account saved with ID: {account.id}")
+                
+                # Create default posting schedule
+                schedule = PostingSchedule(
+                    account_id=account.id,
+                    time_slot_1=datetime.strptime('13:00', '%H:%M').time(),  # 1 PM
+                    time_slot_2=datetime.strptime('22:00', '%H:%M').time()   # 10 PM
+                )
+                print(f"🔍 ADD_ACCOUNT: Adding posting schedule for real account")
+                db.session.add(schedule)
+                db.session.commit()
+                print(f"✅ ADD_ACCOUNT: Real account schedule saved")
+                
+                flash(f'Account @{instagram_username} added successfully! Account type: {account_info.get("account_type", "business")}', 'success')
+                print(f"✅ ADD_ACCOUNT: Real account success flash message set, redirecting to accounts")
+                return redirect(url_for('accounts'))
+            except Exception as db_error:
+                print(f"❌ ADD_ACCOUNT: Database error creating real account: {db_error}")
+                db.session.rollback()
+                flash(f'Database error: {str(db_error)}', 'error')
+                return render_template('add_account.html')
             
         except Exception as e:
+            print(f"❌ ADD_ACCOUNT: Exception during API validation: {e}")
             flash(f'Error validating account: {str(e)}', 'error')
             return render_template('add_account.html')
     
+    print(f"🔍 ADD_ACCOUNT: GET request - showing form")
     return render_template('add_account.html')
 
 @app.route('/upload', methods=['GET', 'POST'])
