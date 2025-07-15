@@ -14,10 +14,36 @@
     <div class="col-md-8">
         <div class="card">
             <div class="card-header">
-                <h5 class="card-title mb-0">Upload and Schedule Your Post</h5>
+                <h5 class="card-title mb-0">Create Your Content</h5>
             </div>
             <div class="card-body">
-                <form method="POST" enctype="multipart/form-data" id="uploadForm">
+                <!-- Tab Navigation -->
+                <ul class="nav nav-tabs mb-4" id="postTypeTabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="feed-tab" data-bs-toggle="tab" data-bs-target="#feed-post" 
+                                type="button" role="tab" aria-controls="feed-post" aria-selected="true">
+                            <i class="fas fa-image"></i> Feed Post
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="story-tab" data-bs-toggle="tab" data-bs-target="#story-post" 
+                                type="button" role="tab" aria-controls="story-post" aria-selected="false">
+                            <i class="fas fa-circle"></i> Story
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="carousel-tab" data-bs-toggle="tab" data-bs-target="#carousel-post" 
+                                type="button" role="tab" aria-controls="carousel-post" aria-selected="false">
+                            <i class="fas fa-images"></i> Carousel
+                        </button>
+                    </li>
+                </ul>
+
+                <!-- Tab Content -->
+                <div class="tab-content" id="postTypeContent">
+                    <!-- Feed Post Tab -->
+                    <div class="tab-pane fade show active" id="feed-post" role="tabpanel" aria-labelledby="feed-tab">
+                        <form method="POST" enctype="multipart/form-data" id="feedUploadForm" data-post-type="feed">
                     <!-- Account Selection -->
                     <div class="mb-3">
                         <label for="account_id" class="form-label">Select Account</label>
@@ -121,11 +147,323 @@
                     
                     <!-- Submit Button -->
                     <div class="d-grid">
-                        <button type="submit" class="btn btn-primary btn-lg" id="submitBtn">
-                            <i class="fas fa-paper-plane"></i> Upload and Schedule
-                        </button>
-                    </div>
-                </form>
+                            <button type="submit" class="btn btn-primary btn-lg" id="feedSubmitBtn">
+                                <i class="fas fa-paper-plane"></i> Upload and Schedule Feed Post
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Story Post Tab -->
+                <div class="tab-pane fade" id="story-post" role="tabpanel" aria-labelledby="story-tab">
+                    <form method="POST" enctype="multipart/form-data" id="storyUploadForm" data-post-type="story">
+                        <!-- Account Selection for Story -->
+                        <div class="mb-3">
+                            <label for="story_account_id" class="form-label">Select Account</label>
+                            <select class="form-select" id="story_account_id" name="account_id" required>
+                                <option value="">Choose an account...</option>
+                                {% for account in accounts %}
+                                <option value="{{ account.id }}">@{{ account.username }}{% if account.niche %} - {{ account.niche }}{% endif %}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <!-- Story Image Upload -->
+                        <div class="mb-3">
+                            <label for="story_file" class="form-label">Upload Story Image</label>
+                            <div class="upload-zone" id="storyUploadZone">
+                                <i class="fas fa-circle fa-3x text-muted mb-3"></i>
+                                <h4>Drag & Drop Your Story Image</h4>
+                                <p class="text-muted">or click to browse (9:16 ratio recommended)</p>
+                                <input type="file" class="form-control" id="story_file" name="file" accept="image/*" required style="display: none;">
+                            </div>
+                            <div id="storyFileStatus" class="mt-2" style="display: none;">
+                                <small class="text-success">
+                                    <i class="fas fa-check-circle"></i> 
+                                    <span id="storyFileStatusText">File selected successfully</span>
+                                </small>
+                                <button type="button" class="btn btn-sm btn-outline-secondary ms-2" id="storyFilesClear">
+                                    <i class="fas fa-times"></i> Clear
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Story Image Preview -->
+                        <div id="storyImagePreview" class="mb-3" style="display: none;">
+                            <label class="form-label">Story Preview</label>
+                            <div class="text-center">
+                                <div class="story-frame mx-auto">
+                                    <img id="storyPreviewImg" class="img-fluid story-image" style="border-radius: 15px;">
+                                    <div id="storyOverlayContainer" class="story-overlay-container">
+                                        <!-- Text, polls, mentions will be added here via JS -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Story Elements -->
+                        <div class="accordion mb-3" id="storyElementsAccordion">
+                            <!-- Text Overlay Section -->
+                            <div class="accordion-item">
+                                <h2 class="accordion-header" id="textOverlayHeader">
+                                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" 
+                                            data-bs-target="#textOverlayCollapse" aria-expanded="false" 
+                                            aria-controls="textOverlayCollapse">
+                                        <i class="fas fa-font me-2"></i> Text Overlay
+                                    </button>
+                                </h2>
+                                <div id="textOverlayCollapse" class="accordion-collapse collapse" 
+                                     aria-labelledby="textOverlayHeader" data-bs-parent="#storyElementsAccordion">
+                                    <div class="accordion-body">
+                                        <div class="mb-3">
+                                            <label for="overlayText" class="form-label">Text Content</label>
+                                            <input type="text" class="form-control" id="overlayText" name="overlay_text" 
+                                                   placeholder="Enter text for your story">
+                                        </div>
+                                        <div class="row">
+                                            <div class="col-md-6">
+                                                <label for="textPosition" class="form-label">Position</label>
+                                                <select class="form-select" id="textPosition" name="text_position">
+                                                    <option value="top">Top</option>
+                                                    <option value="center" selected>Center</option>
+                                                    <option value="bottom">Bottom</option>
+                                                </select>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label for="textStyle" class="form-label">Style</label>
+                                                <select class="form-select" id="textStyle" name="text_style">
+                                                    <option value="default">Default</option>
+                                                    <option value="bold">Bold</option>
+                                                    <option value="elegant">Elegant</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Poll Section -->
+                            <div class="accordion-item">
+                                <h2 class="accordion-header" id="pollHeader">
+                                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" 
+                                            data-bs-target="#pollCollapse" aria-expanded="false" aria-controls="pollCollapse">
+                                        <i class="fas fa-poll me-2"></i> Poll
+                                    </button>
+                                </h2>
+                                <div id="pollCollapse" class="accordion-collapse collapse" 
+                                     aria-labelledby="pollHeader" data-bs-parent="#storyElementsAccordion">
+                                    <div class="accordion-body">
+                                        <div class="mb-3">
+                                            <label for="pollQuestion" class="form-label">Poll Question</label>
+                                            <input type="text" class="form-control" id="pollQuestion" name="poll_question" 
+                                                   placeholder="Ask your audience a question">
+                                        </div>
+                                        <div class="row">
+                                            <div class="col-md-6">
+                                                <label class="form-label">Option 1</label>
+                                                <input type="text" class="form-control poll-option" name="poll_option_1" 
+                                                       placeholder="First option">
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label class="form-label">Option 2</label>
+                                                <input type="text" class="form-control poll-option" name="poll_option_2" 
+                                                       placeholder="Second option">
+                                            </div>
+                                        </div>
+                                        <div class="row mt-2">
+                                            <div class="col-md-6">
+                                                <label class="form-label">Option 3</label>
+                                                <input type="text" class="form-control poll-option" name="poll_option_3" 
+                                                       placeholder="Third option (optional)">
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label class="form-label">Option 4</label>
+                                                <input type="text" class="form-control poll-option" name="poll_option_4" 
+                                                       placeholder="Fourth option (optional)">
+                                            </div>
+                                        </div>
+                                        <div class="mt-3">
+                                            <label for="pollTemplate" class="form-label">Quick Templates</label>
+                                            <select class="form-select" id="pollTemplate">
+                                                <option value="">Select a poll template...</option>
+                                                <option value="like_dislike">👍 Love it | 👎 Not for me | 🤔 Maybe | 💬 Tell me more</option>
+                                                <option value="rating">⭐ Excellent | 😊 Good | 😐 Okay | 😞 Poor</option>
+                                                <option value="preference">Option A | Option B | Option C | No preference</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Mentions Section -->
+                            <div class="accordion-item">
+                                <h2 class="accordion-header" id="mentionsHeader">
+                                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" 
+                                            data-bs-target="#mentionsCollapse" aria-expanded="false" aria-controls="mentionsCollapse">
+                                        <i class="fas fa-at me-2"></i> Mentions
+                                    </button>
+                                </h2>
+                                <div id="mentionsCollapse" class="accordion-collapse collapse" 
+                                     aria-labelledby="mentionsHeader" data-bs-parent="#storyElementsAccordion">
+                                    <div class="accordion-body">
+                                        <div class="mb-3">
+                                            <label for="mentionInput" class="form-label">Type @ to mention users</label>
+                                            <input type="text" class="form-control" id="mentionInput" 
+                                                   placeholder="@username">
+                                            <div id="mentionSuggestions" class="suggestions-dropdown mt-2" style="display: none;">
+                                                <!-- Suggestions populated via JavaScript -->
+                                            </div>
+                                        </div>
+                                        <div id="selectedMentions" class="mention-tags mb-3">
+                                            <!-- Selected mentions displayed here -->
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Link Section -->
+                            <div class="accordion-item">
+                                <h2 class="accordion-header" id="linkHeader">
+                                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" 
+                                            data-bs-target="#linkCollapse" aria-expanded="false" aria-controls="linkCollapse">
+                                        <i class="fas fa-link me-2"></i> Link (Swipe Up)
+                                    </button>
+                                </h2>
+                                <div id="linkCollapse" class="accordion-collapse collapse" 
+                                     aria-labelledby="linkHeader" data-bs-parent="#storyElementsAccordion">
+                                    <div class="accordion-body">
+                                        <div class="mb-3">
+                                            <label for="storyLink" class="form-label">Link URL</label>
+                                            <input type="url" class="form-control" id="storyLink" name="story_link" 
+                                                   placeholder="https://example.com">
+                                        </div>
+                                        <div class="mb-3">
+                                            <label for="linkText" class="form-label">Link Text</label>
+                                            <input type="text" class="form-control" id="linkText" name="link_text" 
+                                                   placeholder="Swipe up" value="Swipe up">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Story Scheduling -->
+                        <div class="mb-3">
+                            <label class="form-label">Schedule Story</label>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <select class="form-select" id="storySchedulingType" name="schedule_type">
+                                        <option value="now">Post Now</option>
+                                        <option value="specific">Specific Time</option>
+                                        <option value="auto_story">Auto-Schedule Stories</option>
+                                        <option value="queue">Add to Queue</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-6" id="storySpecificTimeContainer" style="display: none;">
+                                    <input type="datetime-local" class="form-control" id="storyScheduledTime" name="scheduled_time">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Story Submit Button -->
+                        <div class="d-grid">
+                            <button type="submit" class="btn btn-primary btn-lg" id="storySubmitBtn">
+                                <i class="fas fa-circle"></i> Create Story
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Carousel Post Tab -->
+                <div class="tab-pane fade" id="carousel-post" role="tabpanel" aria-labelledby="carousel-tab">
+                    <form method="POST" enctype="multipart/form-data" id="carouselUploadForm" data-post-type="carousel">
+                        <!-- Account Selection for Carousel -->
+                        <div class="mb-3">
+                            <label for="carousel_account_id" class="form-label">Select Account</label>
+                            <select class="form-select" id="carousel_account_id" name="account_id" required>
+                                <option value="">Choose an account...</option>
+                                {% for account in accounts %}
+                                <option value="{{ account.id }}">@{{ account.username }}{% if account.niche %} - {{ account.niche }}{% endif %}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <!-- Carousel Images Upload -->
+                        <div class="mb-3">
+                            <label for="carousel_files" class="form-label">Upload Carousel Images</label>
+                            <div class="upload-zone" id="carouselUploadZone">
+                                <i class="fas fa-images fa-3x text-muted mb-3"></i>
+                                <h4>Drag & Drop Multiple Images</h4>
+                                <p class="text-muted">or click to browse (Max 20 images)</p>
+                                <small class="text-muted">Images will be ordered by filename numbers</small>
+                                <input type="file" class="form-control" id="carousel_files" name="files[]" 
+                                       accept="image/*" multiple required style="display: none;">
+                            </div>
+                            <div id="carouselFileStatus" class="mt-2" style="display: none;">
+                                <small class="text-success">
+                                    <i class="fas fa-check-circle"></i> 
+                                    <span id="carouselFileCount">0 files selected</span>
+                                </small>
+                                <button type="button" class="btn btn-sm btn-outline-secondary ms-2" id="carouselClearFiles">
+                                    <i class="fas fa-times"></i> Clear All
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Carousel Organizer -->
+                        <div id="carouselOrganizer" class="mb-3" style="display: none;">
+                            <label class="form-label">Organize Images</label>
+                            <div id="carouselImageList" class="carousel-organizer">
+                                <!-- Dynamic image items will be added here -->
+                            </div>
+                        </div>
+
+                        <!-- Carousel Caption -->
+                        <div class="mb-3">
+                            <label for="carouselCaption" class="form-label">Caption</label>
+                            <textarea class="form-control" id="carouselCaption" name="caption" rows="4" 
+                                      placeholder="Write a caption for your carousel..."></textarea>
+                        </div>
+
+                        <!-- Carousel Caption Template -->
+                        <div class="mb-3">
+                            <label for="carousel_caption_template" class="form-label">Caption Template (Optional)</label>
+                            <select class="form-select" id="carousel_caption_template" name="caption_template">
+                                <option value="">Choose a template...</option>
+                                {% for template in templates %}
+                                <option value="{{ template.template }}">{{ template.name }} - {{ template.category }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <!-- Carousel Scheduling -->
+                        <div class="mb-3">
+                            <label class="form-label">Schedule Carousel</label>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <select class="form-select" id="carouselSchedulingType" name="schedule_type">
+                                        <option value="now">Post Now</option>
+                                        <option value="specific">Specific Time</option>
+                                        <option value="next_slot">Next Available Slot</option>
+                                        <option value="queue">Add to Queue</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-6" id="carouselSpecificTimeContainer" style="display: none;">
+                                    <input type="datetime-local" class="form-control" id="carouselScheduledTime" name="scheduled_time">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Carousel Submit Button -->
+                        <div class="d-grid">
+                            <button type="submit" class="btn btn-primary btn-lg" id="carouselSubmitBtn">
+                                <i class="fas fa-images"></i> Create Carousel
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
             </div>
         </div>
     </div>
@@ -208,9 +546,256 @@
         padding: 12px;
         background-color: #fff;
     }
+    
+    /* Story-specific styles */
+    .story-frame {
+        width: 180px;
+        height: 320px;
+        position: relative;
+        border-radius: 15px;
+        overflow: hidden;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        background: linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%);
+        padding: 3px;
+    }
+    
+    .story-image {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        border-radius: 12px;
+    }
+    
+    .story-overlay-container {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        pointer-events: none;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        padding: 20px;
+    }
+    
+    .story-text-overlay {
+        background: rgba(0,0,0,0.5);
+        color: white;
+        padding: 8px 16px;
+        border-radius: 20px;
+        font-weight: bold;
+        text-align: center;
+        margin-bottom: 10px;
+    }
+    
+    .story-poll-overlay {
+        background: rgba(255,255,255,0.9);
+        padding: 15px;
+        border-radius: 15px;
+        width: 80%;
+        text-align: center;
+        margin-bottom: 10px;
+    }
+    
+    .story-mention-overlay {
+        background: rgba(0,123,255,0.8);
+        color: white;
+        padding: 4px 8px;
+        border-radius: 10px;
+        font-size: 12px;
+        margin: 2px;
+    }
+    
+    /* Carousel-specific styles */
+    .carousel-organizer {
+        max-height: 400px;
+        overflow-y: auto;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        padding: 15px;
+    }
+    
+    .carousel-item {
+        display: flex;
+        align-items: center;
+        padding: 10px;
+        margin-bottom: 10px;
+        border: 1px solid #eee;
+        border-radius: 8px;
+        background: #f9f9f9;
+        position: relative;
+    }
+    
+    .carousel-item img {
+        width: 60px;
+        height: 60px;
+        object-fit: cover;
+        border-radius: 8px;
+        margin-right: 15px;
+    }
+    
+    .carousel-item .drag-handle {
+        cursor: grab;
+        color: #666;
+        margin-right: 10px;
+    }
+    
+    .carousel-item .drag-handle:hover {
+        color: #007bff;
+    }
+    
+    .carousel-item .item-controls {
+        margin-left: auto;
+        display: flex;
+        gap: 5px;
+    }
+    
+    .carousel-item .position-indicator {
+        position: absolute;
+        top: 5px;
+        right: 5px;
+        background: #007bff;
+        color: white;
+        border-radius: 50%;
+        width: 25px;
+        height: 25px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        font-weight: bold;
+    }
+    
+    .carousel-item.dragging {
+        opacity: 0.5;
+        transform: rotate(5deg);
+    }
+    
+    /* Mention suggestions dropdown */
+    .suggestions-dropdown {
+        background: white;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        max-height: 200px;
+        overflow-y: auto;
+        z-index: 1000;
+    }
+    
+    .suggestion-item {
+        padding: 10px;
+        cursor: pointer;
+        border-bottom: 1px solid #eee;
+    }
+    
+    .suggestion-item:hover {
+        background: #f0f0f0;
+    }
+    
+    .suggestion-item:last-child {
+        border-bottom: none;
+    }
+    
+    /* Mention tags */
+    .mention-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+    
+    .mention-tag {
+        background: #007bff;
+        color: white;
+        padding: 4px 8px;
+        border-radius: 15px;
+        font-size: 12px;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+    }
+    
+    .mention-tag .remove-mention {
+        cursor: pointer;
+        font-weight: bold;
+    }
+    
+    .mention-tag .remove-mention:hover {
+        color: #ffcccc;
+    }
+    
+    /* Tab-specific upload zones */
+    #storyUploadZone {
+        border-color: #e91e63;
+    }
+    
+    #storyUploadZone:hover {
+        border-color: #c2185b;
+        background-color: #fce4ec;
+    }
+    
+    #carouselUploadZone {
+        border-color: #ff9800;
+    }
+    
+    #carouselUploadZone:hover {
+        border-color: #f57c00;
+        background-color: #fff3e0;
+    }
+    
+    /* Responsive adjustments */
+    @media (max-width: 768px) {
+        .story-frame {
+            width: 150px;
+            height: 266px;
+        }
+        
+        .carousel-item {
+            flex-direction: column;
+            text-align: center;
+        }
+        
+        .carousel-item img {
+            margin-right: 0;
+            margin-bottom: 10px;
+        }
+        
+        .carousel-item .item-controls {
+            margin-left: 0;
+            justify-content: center;
+        }
+    }
 </style>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    
+    // Global variables
+    let currentPostType = 'feed';
+    let selectedMentions = [];
+    let carouselFiles = [];
+    
+    // Initialize tab switching
+    initializeTabs();
+    
+    // Initialize each tab's functionality
+    initializeFeedTab();
+    initializeStoryTab();
+    initializeCarouselTab();
+    
+    function initializeTabs() {
+        const tabButtons = document.querySelectorAll('#postTypeTabs button');
+        
+        tabButtons.forEach(button => {
+            button.addEventListener('click', function() {
+                const target = this.getAttribute('data-bs-target');
+                currentPostType = target.replace('#', '').replace('-post', '');
+                console.log('Switched to tab:', currentPostType);
+            });
+        });
+    }
+    
+    // ====== FEED TAB FUNCTIONALITY ======
+    function initializeFeedTab() {
     const uploadZone = document.getElementById('uploadZone');
     const fileInput = document.getElementById('file');
     const imagePreview = document.getElementById('imagePreview');
@@ -405,22 +990,13 @@ document.addEventListener('DOMContentLoaded', function() {
     accountSelect.addEventListener('change', updatePostPreview);
     
     // Form submission validation
-    document.getElementById('uploadForm').addEventListener('submit', function(e) {
-        const submitBtn = document.getElementById('submitBtn');
-        
-        console.log('Form submission started');
-        console.log('Form element:', e.target);
-        console.log('Form method:', e.target.method);
-        console.log('Form enctype:', e.target.enctype);
-        console.log('File input element:', fileInput);
-        console.log('File input files:', fileInput.files);
-        console.log('File input parent:', fileInput.parentElement);
+    document.getElementById('feedUploadForm').addEventListener('submit', function(e) {
+        const submitBtn = document.getElementById('feedSubmitBtn');
         
         // Validate file is selected
         if (!fileInput.files || fileInput.files.length === 0) {
             e.preventDefault();
             alert('Please select an image file before submitting.');
-            console.log('Form blocked: No file selected');
             return false;
         }
         
@@ -428,7 +1004,6 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!accountSelect.value) {
             e.preventDefault();
             alert('Please select an Instagram account.');
-            console.log('Form blocked: No account selected');
             return false;
         }
         
@@ -436,7 +1011,6 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!customText.value.trim() && !captionTemplate.value) {
             e.preventDefault();
             alert('Please enter caption text or select a template.');
-            console.log('Form blocked: No caption');
             return false;
         }
         
@@ -444,19 +1018,238 @@ document.addEventListener('DOMContentLoaded', function() {
         submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Uploading...';
         submitBtn.disabled = true;
         
-        // Debug log
-        console.log('Form submission details:');
-        console.log('Selected file:', fileInput.files[0]);
-        console.log('File name:', fileInput.files[0].name);
-        console.log('File size:', fileInput.files[0].size);
-        console.log('File type:', fileInput.files[0].type);
-        console.log('Selected account:', accountSelect.value);
-        console.log('Caption text:', customText.value);
-        console.log('Template:', captionTemplate.value);
-        console.log('Form will submit now...');
-        
         return true;
     });
+}
+
+    // ====== STORY TAB FUNCTIONALITY ======
+    function initializeStoryTab() {
+        const storyUploadZone = document.getElementById('storyUploadZone');
+        const storyFileInput = document.getElementById('story_file');
+        const storyImagePreview = document.getElementById('storyImagePreview');
+        const storyPreviewImg = document.getElementById('storyPreviewImg');
+        const storyFileStatus = document.getElementById('storyFileStatus');
+        const storyFileClear = document.getElementById('storyFilesClear');
+        const storySchedulingType = document.getElementById('storySchedulingType');
+        const storySpecificTimeContainer = document.getElementById('storySpecificTimeContainer');
+        
+        // Upload zone click handler
+        storyUploadZone.addEventListener('click', function(e) {
+            e.preventDefault();
+            storyFileInput.click();
+        });
+        
+        // File input change handler
+        storyFileInput.addEventListener('change', function(e) {
+            if (e.target.files.length > 0) {
+                handleStoryFileSelect(e.target.files[0]);
+            }
+        });
+        
+        // Handle story file selection
+        function handleStoryFileSelect(file) {
+            if (!file.type.startsWith('image/')) {
+                alert('Please select a valid image file.');
+                return;
+            }
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                storyPreviewImg.src = e.target.result;
+                storyImagePreview.style.display = 'block';
+                updateStoryPreview();
+            };
+            reader.readAsDataURL(file);
+            
+            storyFileStatus.style.display = 'block';
+        }
+        
+        // Update story preview
+        function updateStoryPreview() {
+            const overlayContainer = document.getElementById('storyOverlayContainer');
+            overlayContainer.innerHTML = '';
+            
+            // Add text overlay if present
+            const overlayText = document.getElementById('overlayText').value;
+            if (overlayText) {
+                const textDiv = document.createElement('div');
+                textDiv.className = 'story-text-overlay';
+                textDiv.textContent = overlayText;
+                overlayContainer.appendChild(textDiv);
+            }
+            
+            // Add poll if present
+            const pollQuestion = document.getElementById('pollQuestion').value;
+            if (pollQuestion) {
+                const pollDiv = document.createElement('div');
+                pollDiv.className = 'story-poll-overlay';
+                pollDiv.innerHTML = `<strong>${pollQuestion}</strong>`;
+                overlayContainer.appendChild(pollDiv);
+            }
+        }
+        
+        // Clear story file
+        storyFileClear.addEventListener('click', function() {
+            storyFileInput.value = '';
+            storyImagePreview.style.display = 'none';
+            storyFileStatus.style.display = 'none';
+        });
+        
+        // Scheduling type change
+        storySchedulingType.addEventListener('change', function() {
+            if (this.value === 'specific') {
+                storySpecificTimeContainer.style.display = 'block';
+            } else {
+                storySpecificTimeContainer.style.display = 'none';
+            }
+        });
+        
+        // Story form submission
+        document.getElementById('storyUploadForm').addEventListener('submit', function(e) {
+            const submitBtn = document.getElementById('storySubmitBtn');
+            
+            if (!storyFileInput.files || storyFileInput.files.length === 0) {
+                e.preventDefault();
+                alert('Please select a story image.');
+                return false;
+            }
+            
+            const accountSelect = document.getElementById('story_account_id');
+            if (!accountSelect.value) {
+                e.preventDefault();
+                alert('Please select an Instagram account.');
+                return false;
+            }
+            
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating Story...';
+            submitBtn.disabled = true;
+            
+            return true;
+        });
+        
+        // Add event listeners for story elements
+        document.getElementById('overlayText').addEventListener('input', updateStoryPreview);
+        document.getElementById('pollQuestion').addEventListener('input', updateStoryPreview);
+    }
+    
+    // ====== CAROUSEL TAB FUNCTIONALITY ======
+    function initializeCarouselTab() {
+        const carouselUploadZone = document.getElementById('carouselUploadZone');
+        const carouselFileInput = document.getElementById('carousel_files');
+        const carouselFileStatus = document.getElementById('carouselFileStatus');
+        const carouselOrganizer = document.getElementById('carouselOrganizer');
+        const carouselImageList = document.getElementById('carouselImageList');
+        const carouselClearFiles = document.getElementById('carouselClearFiles');
+        const carouselSchedulingType = document.getElementById('carouselSchedulingType');
+        const carouselSpecificTimeContainer = document.getElementById('carouselSpecificTimeContainer');
+        
+        // Upload zone click handler
+        carouselUploadZone.addEventListener('click', function(e) {
+            e.preventDefault();
+            carouselFileInput.click();
+        });
+        
+        // File input change handler
+        carouselFileInput.addEventListener('change', function(e) {
+            if (e.target.files.length > 0) {
+                handleCarouselFilesSelect(e.target.files);
+            }
+        });
+        
+        // Handle carousel files selection
+        function handleCarouselFilesSelect(files) {
+            if (files.length > 20) {
+                alert('Maximum 20 images allowed for carousel.');
+                return;
+            }
+            
+            carouselFiles = Array.from(files);
+            updateCarouselOrganizer();
+            
+            const fileCount = document.getElementById('carouselFileCount');
+            fileCount.textContent = `${files.length} files selected`;
+            carouselFileStatus.style.display = 'block';
+            carouselOrganizer.style.display = 'block';
+        }
+        
+        // Update carousel organizer
+        function updateCarouselOrganizer() {
+            carouselImageList.innerHTML = '';
+            
+            carouselFiles.forEach((file, index) => {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const itemDiv = document.createElement('div');
+                    itemDiv.className = 'carousel-item';
+                    itemDiv.innerHTML = `
+                        <div class="drag-handle">
+                            <i class="fas fa-grip-vertical"></i>
+                        </div>
+                        <img src="${e.target.result}" alt="Carousel image ${index + 1}">
+                        <div class="item-info">
+                            <strong>${file.name}</strong>
+                            <br><small class="text-muted">${(file.size / 1024 / 1024).toFixed(2)} MB</small>
+                        </div>
+                        <div class="position-indicator">${index + 1}</div>
+                        <div class="item-controls">
+                            <button type="button" class="btn btn-sm btn-outline-danger remove-item" data-index="${index}">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    `;
+                    carouselImageList.appendChild(itemDiv);
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+        
+        // Clear carousel files
+        carouselClearFiles.addEventListener('click', function() {
+            carouselFileInput.value = '';
+            carouselFiles = [];
+            carouselFileStatus.style.display = 'none';
+            carouselOrganizer.style.display = 'none';
+            carouselImageList.innerHTML = '';
+        });
+        
+        // Scheduling type change
+        carouselSchedulingType.addEventListener('change', function() {
+            if (this.value === 'specific') {
+                carouselSpecificTimeContainer.style.display = 'block';
+            } else {
+                carouselSpecificTimeContainer.style.display = 'none';
+            }
+        });
+        
+        // Carousel form submission
+        document.getElementById('carouselUploadForm').addEventListener('submit', function(e) {
+            const submitBtn = document.getElementById('carouselSubmitBtn');
+            
+            if (!carouselFileInput.files || carouselFileInput.files.length === 0) {
+                e.preventDefault();
+                alert('Please select at least 2 images for carousel.');
+                return false;
+            }
+            
+            if (carouselFileInput.files.length < 2) {
+                e.preventDefault();
+                alert('Carousel requires at least 2 images.');
+                return false;
+            }
+            
+            const accountSelect = document.getElementById('carousel_account_id');
+            if (!accountSelect.value) {
+                e.preventDefault();
+                alert('Please select an Instagram account.');
+                return false;
+            }
+            
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating Carousel...';
+            submitBtn.disabled = true;
+            
+            return true;
+        });
+    }
 });
 </script>
 {% endblock %} 

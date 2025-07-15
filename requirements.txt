@@ -11,5 +11,4 @@ google-auth-httplib2>=0.1.0
 google-cloud-storage>=2.14.0
 Werkzeug>=2.3.0
 gunicorn>=21.0.0
-pytz>=2023.3
-psutil>=5.9.0 
+pytz>=2023.3 
