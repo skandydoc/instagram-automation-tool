@@ -17,6 +17,8 @@ from apscheduler.triggers.date import DateTrigger
 from dotenv import load_dotenv
 import pytz
 from flask_migrate import Migrate
+import logging
+from logging.handlers import RotatingFileHandler
 
 # Google Cloud Storage imports
 try:
