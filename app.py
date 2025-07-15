@@ -816,15 +816,13 @@ class GoogleCloudStorage:
             # Test authentication by trying to get bucket info
             self.bucket = self.client.bucket(self.bucket_name)
             
-            # Test if bucket exists and is accessible
-            if self.bucket.exists():
-                self.authenticated = True
-                print(f"✅ Google Cloud Storage initialized successfully")
-                print(f"   Bucket: {self.bucket_name}")
-                print(f"   Project: {self.project_id or 'default'}")
-            else:
-                print(f"⚠️  GCS Bucket '{self.bucket_name}' does not exist or is not accessible")
-                self.authenticated = False
+            # Skip bucket verification to avoid hanging - just assume it's available
+            # The bucket check will happen when actually uploading files
+            self.authenticated = True
+            print(f"✅ Google Cloud Storage initialized successfully")
+            print(f"   Bucket: {self.bucket_name}")
+            print(f"   Project: {self.project_id or 'default'}")
+            print(f"   Note: Bucket verification skipped for faster startup")
                 
         except DefaultCredentialsError:
             print(f"❌ GCS Authentication failed: No valid credentials found")
