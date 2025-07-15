@@ -44,6 +44,7 @@
                     <!-- Feed Post Tab -->
                     <div class="tab-pane fade show active" id="feed-post" role="tabpanel" aria-labelledby="feed-tab">
                         <form method="POST" enctype="multipart/form-data" id="feedUploadForm" data-post-type="feed">
+                        <input type="hidden" name="post_type" value="feed">
                     <!-- Account Selection -->
                     <div class="mb-3">
                         <label for="account_id" class="form-label">Select Account</label>
@@ -157,6 +158,7 @@
                 <!-- Story Post Tab -->
                 <div class="tab-pane fade" id="story-post" role="tabpanel" aria-labelledby="story-tab">
                     <form method="POST" enctype="multipart/form-data" id="storyUploadForm" data-post-type="story">
+                        <input type="hidden" name="post_type" value="story">
                         <!-- Account Selection for Story -->
                         <div class="mb-3">
                             <label for="story_account_id" class="form-label">Select Account</label>
@@ -377,6 +379,7 @@
                 <!-- Carousel Post Tab -->
                 <div class="tab-pane fade" id="carousel-post" role="tabpanel" aria-labelledby="carousel-tab">
                     <form method="POST" enctype="multipart/form-data" id="carouselUploadForm" data-post-type="carousel">
+                        <input type="hidden" name="post_type" value="carousel">
                         <!-- Account Selection for Carousel -->
                         <div class="mb-3">
                             <label for="carousel_account_id" class="form-label">Select Account</label>
@@ -993,10 +996,19 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('feedUploadForm').addEventListener('submit', function(e) {
         const submitBtn = document.getElementById('feedSubmitBtn');
         
+        console.log('Form submission started');
+        console.log('Form element:', e.target);
+        console.log('Form method:', e.target.method);
+        console.log('Form enctype:', e.target.enctype);
+        console.log('File input element:', fileInput);
+        console.log('File input files:', fileInput.files);
+        console.log('File input parent:', fileInput.parentElement);
+        
         // Validate file is selected
         if (!fileInput.files || fileInput.files.length === 0) {
             e.preventDefault();
             alert('Please select an image file before submitting.');
+            console.log('Form blocked: No file selected');
             return false;
         }
         
@@ -1004,6 +1016,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!accountSelect.value) {
             e.preventDefault();
             alert('Please select an Instagram account.');
+            console.log('Form blocked: No account selected');
             return false;
         }
         
@@ -1011,12 +1024,24 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!customText.value.trim() && !captionTemplate.value) {
             e.preventDefault();
             alert('Please enter caption text or select a template.');
+            console.log('Form blocked: No caption');
             return false;
         }
         
         // Show loading state
         submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Uploading...';
         submitBtn.disabled = true;
+        
+        // Debug log
+        console.log('Form submission details:');
+        console.log('Selected file:', fileInput.files[0]);
+        console.log('File name:', fileInput.files[0].name);
+        console.log('File size:', fileInput.files[0].size);
+        console.log('File type:', fileInput.files[0].type);
+        console.log('Selected account:', accountSelect.value);
+        console.log('Caption text:', customText.value);
+        console.log('Template:', captionTemplate.value);
+        console.log('Form will submit now...');
         
         return true;
     });
@@ -1029,30 +1054,62 @@ document.addEventListener('DOMContentLoaded', function() {
         const storyImagePreview = document.getElementById('storyImagePreview');
         const storyPreviewImg = document.getElementById('storyPreviewImg');
         const storyFileStatus = document.getElementById('storyFileStatus');
-        const storyFileClear = document.getElementById('storyFilesClear');
+        const storyFilesClear = document.getElementById('storyFilesClear');
+        const overlayText = document.getElementById('overlayText');
+        const textPosition = document.getElementById('textPosition');
+        const textStyle = document.getElementById('textStyle');
+        const pollQuestion = document.getElementById('pollQuestion');
+        const pollOptions = document.querySelectorAll('.poll-option');
+        const pollTemplate = document.getElementById('pollTemplate');
+        const mentionInput = document.getElementById('mentionInput');
+        const storyLink = document.getElementById('storyLink');
         const storySchedulingType = document.getElementById('storySchedulingType');
         const storySpecificTimeContainer = document.getElementById('storySpecificTimeContainer');
-        
-        // Upload zone click handler
+
+        // Story upload zone handlers
         storyUploadZone.addEventListener('click', function(e) {
             e.preventDefault();
             storyFileInput.click();
         });
-        
-        // File input change handler
+
+        storyUploadZone.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            storyUploadZone.classList.add('dragover');
+        });
+
+        storyUploadZone.addEventListener('dragleave', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            storyUploadZone.classList.remove('dragover');
+        });
+
+        storyUploadZone.addEventListener('drop', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            storyUploadZone.classList.remove('dragover');
+            
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                storyFileInput.files = files;
+                const event = new Event('change', { bubbles: true });
+                storyFileInput.dispatchEvent(event);
+            }
+        });
+
+        // Story file input change
         storyFileInput.addEventListener('change', function(e) {
             if (e.target.files.length > 0) {
                 handleStoryFileSelect(e.target.files[0]);
             }
         });
-        
-        // Handle story file selection
+
         function handleStoryFileSelect(file) {
             if (!file.type.startsWith('image/')) {
                 alert('Please select a valid image file.');
                 return;
             }
-            
+
             const reader = new FileReader();
             reader.onload = function(e) {
                 storyPreviewImg.src = e.target.result;
@@ -1060,41 +1117,80 @@ document.addEventListener('DOMContentLoaded', function() {
                 updateStoryPreview();
             };
             reader.readAsDataURL(file);
-            
+
             storyFileStatus.style.display = 'block';
         }
-        
-        // Update story preview
-        function updateStoryPreview() {
-            const overlayContainer = document.getElementById('storyOverlayContainer');
-            overlayContainer.innerHTML = '';
-            
-            // Add text overlay if present
-            const overlayText = document.getElementById('overlayText').value;
-            if (overlayText) {
-                const textDiv = document.createElement('div');
-                textDiv.className = 'story-text-overlay';
-                textDiv.textContent = overlayText;
-                overlayContainer.appendChild(textDiv);
-            }
-            
-            // Add poll if present
-            const pollQuestion = document.getElementById('pollQuestion').value;
-            if (pollQuestion) {
-                const pollDiv = document.createElement('div');
-                pollDiv.className = 'story-poll-overlay';
-                pollDiv.innerHTML = `<strong>${pollQuestion}</strong>`;
-                overlayContainer.appendChild(pollDiv);
-            }
-        }
-        
+
         // Clear story file
-        storyFileClear.addEventListener('click', function() {
+        storyFilesClear.addEventListener('click', function() {
             storyFileInput.value = '';
             storyImagePreview.style.display = 'none';
             storyFileStatus.style.display = 'none';
         });
-        
+
+        // Story preview updates
+        function updateStoryPreview() {
+            const overlayContainer = document.getElementById('storyOverlayContainer');
+            overlayContainer.innerHTML = '';
+
+            // Add text overlay
+            if (overlayText.value) {
+                const textOverlay = document.createElement('div');
+                textOverlay.className = 'story-text-overlay';
+                textOverlay.textContent = overlayText.value;
+                
+                if (textPosition.value === 'top') {
+                    textOverlay.style.position = 'absolute';
+                    textOverlay.style.top = '20px';
+                    textOverlay.style.left = '50%';
+                    textOverlay.style.transform = 'translateX(-50%)';
+                } else if (textPosition.value === 'bottom') {
+                    textOverlay.style.position = 'absolute';
+                    textOverlay.style.bottom = '20px';
+                    textOverlay.style.left = '50%';
+                    textOverlay.style.transform = 'translateX(-50%)';
+                }
+                
+                overlayContainer.appendChild(textOverlay);
+            }
+
+            // Add poll
+            if (pollQuestion.value) {
+                const pollOverlay = document.createElement('div');
+                pollOverlay.className = 'story-poll-overlay';
+                
+                let pollHTML = `<strong>${pollQuestion.value}</strong><br>`;
+                pollOptions.forEach((option, index) => {
+                    if (option.value) {
+                        pollHTML += `<div style="margin: 5px 0; padding: 5px; background: #f0f0f0; border-radius: 10px;">${option.value}</div>`;
+                    }
+                });
+                
+                pollOverlay.innerHTML = pollHTML;
+                overlayContainer.appendChild(pollOverlay);
+            }
+        }
+
+        // Event listeners for real-time updates
+        overlayText.addEventListener('input', updateStoryPreview);
+        textPosition.addEventListener('change', updateStoryPreview);
+        textStyle.addEventListener('change', updateStoryPreview);
+        pollQuestion.addEventListener('input', updateStoryPreview);
+        pollOptions.forEach(option => {
+            option.addEventListener('input', updateStoryPreview);
+        });
+
+        // Poll template selection
+        pollTemplate.addEventListener('change', function() {
+            if (this.value) {
+                const options = this.value.split(' | ');
+                pollOptions.forEach((input, index) => {
+                    input.value = options[index] || '';
+                });
+                updateStoryPreview();
+            }
+        });
+
         // Scheduling type change
         storySchedulingType.addEventListener('change', function() {
             if (this.value === 'specific') {
@@ -1103,76 +1199,94 @@ document.addEventListener('DOMContentLoaded', function() {
                 storySpecificTimeContainer.style.display = 'none';
             }
         });
-        
+
         // Story form submission
         document.getElementById('storyUploadForm').addEventListener('submit', function(e) {
             const submitBtn = document.getElementById('storySubmitBtn');
-            
+            const accountSelect = document.getElementById('story_account_id');
+
             if (!storyFileInput.files || storyFileInput.files.length === 0) {
                 e.preventDefault();
                 alert('Please select a story image.');
                 return false;
             }
-            
-            const accountSelect = document.getElementById('story_account_id');
+
             if (!accountSelect.value) {
                 e.preventDefault();
                 alert('Please select an Instagram account.');
                 return false;
             }
-            
+
             submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating Story...';
             submitBtn.disabled = true;
-            
             return true;
         });
-        
-        // Add event listeners for story elements
-        document.getElementById('overlayText').addEventListener('input', updateStoryPreview);
-        document.getElementById('pollQuestion').addEventListener('input', updateStoryPreview);
     }
-    
+
     // ====== CAROUSEL TAB FUNCTIONALITY ======
     function initializeCarouselTab() {
         const carouselUploadZone = document.getElementById('carouselUploadZone');
         const carouselFileInput = document.getElementById('carousel_files');
         const carouselFileStatus = document.getElementById('carouselFileStatus');
+        const carouselFileCount = document.getElementById('carouselFileCount');
+        const carouselClearFiles = document.getElementById('carouselClearFiles');
         const carouselOrganizer = document.getElementById('carouselOrganizer');
         const carouselImageList = document.getElementById('carouselImageList');
-        const carouselClearFiles = document.getElementById('carouselClearFiles');
         const carouselSchedulingType = document.getElementById('carouselSchedulingType');
         const carouselSpecificTimeContainer = document.getElementById('carouselSpecificTimeContainer');
-        
-        // Upload zone click handler
+
+        // Carousel upload zone handlers
         carouselUploadZone.addEventListener('click', function(e) {
             e.preventDefault();
             carouselFileInput.click();
         });
-        
-        // File input change handler
+
+        carouselUploadZone.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            carouselUploadZone.classList.add('dragover');
+        });
+
+        carouselUploadZone.addEventListener('dragleave', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            carouselUploadZone.classList.remove('dragover');
+        });
+
+        carouselUploadZone.addEventListener('drop', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            carouselUploadZone.classList.remove('dragover');
+            
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                carouselFileInput.files = files;
+                const event = new Event('change', { bubbles: true });
+                carouselFileInput.dispatchEvent(event);
+            }
+        });
+
+        // Carousel file input change
         carouselFileInput.addEventListener('change', function(e) {
             if (e.target.files.length > 0) {
                 handleCarouselFilesSelect(e.target.files);
             }
         });
-        
-        // Handle carousel files selection
+
         function handleCarouselFilesSelect(files) {
             if (files.length > 20) {
                 alert('Maximum 20 images allowed for carousel.');
                 return;
             }
-            
+
             carouselFiles = Array.from(files);
-            updateCarouselOrganizer();
-            
-            const fileCount = document.getElementById('carouselFileCount');
-            fileCount.textContent = `${files.length} files selected`;
+            carouselFileCount.textContent = `${files.length} files selected`;
             carouselFileStatus.style.display = 'block';
             carouselOrganizer.style.display = 'block';
+            
+            updateCarouselOrganizer();
         }
-        
-        // Update carousel organizer
+
         function updateCarouselOrganizer() {
             carouselImageList.innerHTML = '';
             
@@ -1186,32 +1300,69 @@ document.addEventListener('DOMContentLoaded', function() {
                             <i class="fas fa-grip-vertical"></i>
                         </div>
                         <img src="${e.target.result}" alt="Carousel image ${index + 1}">
-                        <div class="item-info">
-                            <strong>${file.name}</strong>
-                            <br><small class="text-muted">${(file.size / 1024 / 1024).toFixed(2)} MB</small>
+                        <div class="file-info">
+                            <strong>${file.name}</strong><br>
+                            <small class="text-muted">${(file.size / 1024 / 1024).toFixed(2)} MB</small>
                         </div>
-                        <div class="position-indicator">${index + 1}</div>
                         <div class="item-controls">
-                            <button type="button" class="btn btn-sm btn-outline-danger remove-item" data-index="${index}">
+                            <button type="button" class="btn btn-sm btn-outline-primary move-up" ${index === 0 ? 'disabled' : ''}>
+                                <i class="fas fa-arrow-up"></i>
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-primary move-down" ${index === carouselFiles.length - 1 ? 'disabled' : ''}>
+                                <i class="fas fa-arrow-down"></i>
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-danger remove-item">
                                 <i class="fas fa-trash"></i>
                             </button>
                         </div>
+                        <div class="position-indicator">${index + 1}</div>
                     `;
+                    
+                    // Add event listeners for controls
+                    const moveUpBtn = itemDiv.querySelector('.move-up');
+                    const moveDownBtn = itemDiv.querySelector('.move-down');
+                    const removeBtn = itemDiv.querySelector('.remove-item');
+                    
+                    moveUpBtn.addEventListener('click', () => moveCarouselItem(index, index - 1));
+                    moveDownBtn.addEventListener('click', () => moveCarouselItem(index, index + 1));
+                    removeBtn.addEventListener('click', () => removeCarouselItem(index));
+                    
                     carouselImageList.appendChild(itemDiv);
                 };
                 reader.readAsDataURL(file);
             });
         }
-        
+
+        function moveCarouselItem(fromIndex, toIndex) {
+            if (toIndex < 0 || toIndex >= carouselFiles.length) return;
+            
+            const temp = carouselFiles[fromIndex];
+            carouselFiles[fromIndex] = carouselFiles[toIndex];
+            carouselFiles[toIndex] = temp;
+            
+            updateCarouselOrganizer();
+        }
+
+        function removeCarouselItem(index) {
+            carouselFiles.splice(index, 1);
+            updateCarouselOrganizer();
+            
+            if (carouselFiles.length === 0) {
+                carouselFileStatus.style.display = 'none';
+                carouselOrganizer.style.display = 'none';
+            } else {
+                carouselFileCount.textContent = `${carouselFiles.length} files selected`;
+            }
+        }
+
         // Clear carousel files
         carouselClearFiles.addEventListener('click', function() {
             carouselFileInput.value = '';
             carouselFiles = [];
             carouselFileStatus.style.display = 'none';
             carouselOrganizer.style.display = 'none';
-            carouselImageList.innerHTML = '';
         });
-        
+
         // Scheduling type change
         carouselSchedulingType.addEventListener('change', function() {
             if (this.value === 'specific') {
@@ -1220,33 +1371,32 @@ document.addEventListener('DOMContentLoaded', function() {
                 carouselSpecificTimeContainer.style.display = 'none';
             }
         });
-        
+
         // Carousel form submission
         document.getElementById('carouselUploadForm').addEventListener('submit', function(e) {
             const submitBtn = document.getElementById('carouselSubmitBtn');
-            
+            const accountSelect = document.getElementById('carousel_account_id');
+
             if (!carouselFileInput.files || carouselFileInput.files.length === 0) {
                 e.preventDefault();
-                alert('Please select at least 2 images for carousel.');
+                alert('Please select carousel images.');
                 return false;
             }
-            
+
             if (carouselFileInput.files.length < 2) {
                 e.preventDefault();
                 alert('Carousel requires at least 2 images.');
                 return false;
             }
-            
-            const accountSelect = document.getElementById('carousel_account_id');
+
             if (!accountSelect.value) {
                 e.preventDefault();
                 alert('Please select an Instagram account.');
                 return false;
             }
-            
+
             submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating Carousel...';
             submitBtn.disabled = true;
-            
             return true;
         });
     }
