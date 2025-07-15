@@ -694,7 +694,7 @@ def detect_ngrok_url():
         if response.status_code == 200:
             data = response.json()
             for tunnel in data.get('tunnels', []):
-                if tunnel.get('config', {}).get('addr') == 'http://localhost:5555':
+                if tunnel.get('config', {}).get('addr') == 'http://localhost:5001':
                     public_url = tunnel.get('public_url')
                     if public_url and public_url.startswith('https://'):
                         return public_url.rstrip('/')
@@ -1490,7 +1490,7 @@ def get_public_url_for_file(saved_file, account):
     
     if is_test_account:
         # For test accounts, use localhost URL
-        return f"http://localhost:5555/uploads/{saved_file['relative_path']}"
+        return f"http://localhost:5001/uploads/{saved_file['relative_path']}"
     else:
         # For real accounts, try Google Cloud Storage first, then ngrok
         if gcs.is_available():
@@ -1945,12 +1945,22 @@ def api_handle_external_carousel_images(data, account):
     # This is a placeholder - would need implementation based on requirements
     return {'error': 'External image URLs for carousels not yet implemented'}
 
-@app.route('/api/status/<int:post_id>')
+@app.route('/api/status/<post_id>')
 def api_post_status(post_id):
     """Get status of a specific post"""
-    post = Post.query.get(post_id)
-    if not post:
-        return jsonify({'error': 'Post not found'}), 404
+    # Try to get post by ID (could be integer or string)
+    try:
+        # First try as integer ID
+        if post_id.isdigit():
+            post = Post.query.get(int(post_id))
+        else:
+            # Try to find by other identifiers or return not found
+            post = Post.query.filter_by(instagram_post_id=post_id).first()
+        
+        if not post:
+            return jsonify({'error': 'Post not found'}), 404
+    except ValueError:
+        return jsonify({'error': 'Invalid post ID format'}), 400
     
     return jsonify({
         'id': post.id,
@@ -2205,7 +2215,7 @@ def setup_help():
          
          <h3>Option 2: Use Test Account (Recommended for Development)</h3>
         <div class="code">
-            1. Go to Add Account: <a href="/add_account">http://localhost:5555/add_account</a><br>
+            1. Go to Add Account: <a href="/add_account">http://localhost:5001/add_account</a><br>
             2. Username: test_myaccount<br>
             3. Instagram ID: test123456<br>
             4. Access Token: test_token<br>
@@ -2312,4 +2322,4 @@ def init_db():
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
-    app.run(debug=True, port=5000) 
+    app.run(debug=True, port=5001) 
