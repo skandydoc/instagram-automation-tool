@@ -10,30 +10,8 @@
     </a>
 </div>
 
-<div class="posting-interface">
-  <!-- Tab Navigation -->
-  <ul class="nav nav-tabs" id="postTypeTabs">
-    <li class="nav-item">
-      <a class="nav-link active" data-bs-toggle="tab" href="#feedPost">
-        <i class="fas fa-image"></i> Feed Post
-      </a>
-    </li>
-    <li class="nav-item">
-      <a class="nav-link" data-bs-toggle="tab" href="#storyPost">
-        <i class="fas fa-circle"></i> Story
-      </a>
-    </li>
-    <li class="nav-item">
-      <a class="nav-link" data-bs-toggle="tab" href="#carouselPost">
-        <i class="fas fa-images"></i> Carousel
-      </a>
-    </li>
-  </ul>
-
-  <!-- Tab Content -->
-  <div class="tab-content" id="postTypeContent">
-    <!-- Feed Post Tab -->
-    <div class="tab-pane fade show active" id="feedPost">
+<div class="row">
+    <div class="col-md-8">
         <div class="card">
             <div class="card-header">
                 <h5 class="card-title mb-0">Upload and Schedule Your Post</h5>
@@ -152,165 +130,55 @@
         </div>
     </div>
     
-    <!-- Story Tab -->
-    <div class="tab-pane fade" id="storyPost">
-      <form method="POST" enctype="multipart/form-data" id="storyForm">
-        <input type="hidden" name="post_type" value="story">
-        <!-- Story Image Upload -->
-        <div class="mb-3">
-          <label for="storyImage" class="form-label">Story Image</label>
-          <div class="upload-zone" id="storyUploadZone">
-            <i class="fas fa-upload fa-3x text-muted mb-3"></i>
-            <h4>Drag & Drop Story Image</h4>
-            <p class="text-muted">or click to browse (JPEG/PNG)</p>
-            <input type="file" id="storyImage" name="file" accept="image/*" required style="display: none;">
-          </div>
-        </div>
-        
-        <!-- Story Elements Accordion -->
-        <div class="accordion mb-3" id="storyElements">
-          <!-- Text Overlay -->
-          <div class="accordion-item">
-            <h2 class="accordion-header">
-              <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#textOverlay">
-                <i class="fas fa-font me-2"></i> Text Overlay
-              </button>
-            </h2>
-            <div id="textOverlay" class="accordion-collapse collapse">
-              <div class="accordion-body">
-                <div class="mb-2">
-                  <input type="text" class="form-control" name="text_overlay_text" placeholder="Enter text">
+    <!-- Preview Panel -->
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Preview</h5>
+            </div>
+            <div class="card-body">
+                <div id="postPreview">
+                    <div class="text-center text-muted">
+                        <i class="fas fa-eye fa-2x mb-3"></i>
+                        <p>Upload an image to see the preview</p>
+                    </div>
                 </div>
-                <div class="mb-2">
-                  <select class="form-select" name="text_overlay_position">
-                    <option value="top">Top</option>
-                    <option value="center" selected>Center</option>
-                    <option value="bottom">Bottom</option>
-                  </select>
-                </div>
-                <select class="form-select" name="text_template">
-                  <option value="">Select template</option>
-                  <!-- TODO: Load templates -->
-                </select>
-              </div>
             </div>
-          </div>
-          <!-- Poll Section -->
-          <div class="accordion-item">
-            <h2 class="accordion-header">
-              <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#pollSection">
-                <i class="fas fa-poll me-2"></i> Poll
-              </button>
-            </h2>
-            <div id="pollSection" class="accordion-collapse collapse">
-              <div class="accordion-body">
-                <input type="text" class="form-control mb-2" name="poll_question" placeholder="Poll question">
-                <input type="text" class="form-control mb-2" name="poll_option1" placeholder="Option 1">
-                <input type="text" class="form-control mb-2" name="poll_option2" placeholder="Option 2">
-                <input type="text" class="form-control mb-2" name="poll_option3" placeholder="Option 3">
-                <input type="text" class="form-control mb-2" name="poll_option4" placeholder="Option 4">
-                <select class="form-select" name="poll_template">
-                  <option value="">Select template</option>
-                  <!-- TODO: Load templates -->
-                </select>
-              </div>
-            </div>
-          </div>
-          <!-- Mentions -->
-          <div class="accordion-item">
-            <h2 class="accordion-header">
-              <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#mentionsSection">
-                <i class="fas fa-at me-2"></i> Mentions
-              </button>
-            </h2>
-            <div id="mentionsSection" class="accordion-collapse collapse">
-              <div class="accordion-body">
-                <input type="text" class="form-control" id="mentionInput" placeholder="Type @username">
-                <div id="mentionSuggestions" class="list-group mt-2"></div>
-              </div>
-            </div>
-          </div>
-          <!-- Link -->
-          <div class="accordion-item">
-            <h2 class="accordion-header">
-              <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#linkSection">
-                <i class="fas fa-link me-2"></i> Link
-              </button>
-            </h2>
-            <div id="linkSection" class="accordion-collapse collapse">
-              <div class="accordion-body">
-                <input type="url" class="form-control mb-2" name="link_url" placeholder="https://example.com">
-                <input type="text" class="form-control" name="link_text" placeholder="Swipe up text">
-              </div>
-            </div>
-          </div>
         </div>
         
-        <!-- Caption -->
-        <div class="mb-3">
-          <label for="story_caption" class="form-label">Caption (optional)</label>
-          <textarea class="form-control" name="caption" rows="3"></textarea>
+        <!-- Instructions -->
+        <div class="card mt-3">
+            <div class="card-header">
+                <h6 class="card-title mb-0">
+                    <i class="fas fa-info-circle"></i> Quick Tips
+                </h6>
+            </div>
+            <div class="card-body">
+                <ul class="list-unstyled mb-0">
+                    <li class="mb-2">
+                        <i class="fas fa-check text-success"></i>
+                        Use high-quality images for better engagement
+                    </li>
+                    <li class="mb-2">
+                        <i class="fas fa-check text-success"></i>
+                        Square images (1:1 ratio) work best on Instagram
+                    </li>
+                    <li class="mb-2">
+                        <i class="fas fa-check text-success"></i>
+                        Caption templates save time and ensure consistency
+                    </li>
+                    <li class="mb-2">
+                        <i class="fas fa-check text-success"></i>
+                        Hashtags are automatically added from the repository
+                    </li>
+                    <li class="mb-2">
+                        <i class="fas fa-check text-success"></i>
+                        Posts are scheduled with random variance for natural timing
+                    </li>
+                </ul>
+            </div>
         </div>
-        
-        <!-- Submit -->
-        <button type="submit" class="btn btn-primary">Schedule Story</button>
-      </form>
-      <div class="story-preview mt-3">
-        <div class="story-frame" style="width: 320px; height: 568px; border: 1px solid #ddd; border-radius: 36px; padding: 10px; background: #fff; margin: auto;">
-          <div class="story-image-container" style="width: 100%; height: 100%; background: #f8f9fa; position: relative;">
-            <img id="storyPreviewImage" src="" style="width: 100%; height: 100%; object-fit: cover;">
-            <div id="previewTextOverlay" style="position: absolute; left: 0; right: 0; text-align: center; color: white; text-shadow: 1px 1px 2px black;"></div>
-            <div id="previewPoll" style="position: absolute; bottom: 20%; left: 10%; right: 10%; background: rgba(0,0,0,0.5); color: white; padding: 10px; border-radius: 10px;"></div>
-            <div id="previewMentions" style="position: absolute; top: 10%; left: 10%; color: white; text-shadow: 1px 1px 2px black;"></div>
-            <div id="previewLink" style="position: absolute; bottom: 10%; left: 0; right: 0; text-align: center; color: white; text-shadow: 1px 1px 2px black;"></div>
-          </div>
-        </div>
-      </div>
     </div>
-    
-    <!-- Carousel Tab -->
-    <div class="tab-pane fade" id="carouselPost">
-      <form method="POST" enctype="multipart/form-data" id="carouselForm">
-        <input type="hidden" name="post_type" value="carousel">
-        <!-- Multiple Image Upload -->
-        <div class="mb-3">
-          <label for="carouselImages" class="form-label">Carousel Images (up to 20)</label>
-          <div class="upload-zone" id="carouselUploadZone">
-            <i class="fas fa-images fa-3x text-muted mb-3"></i>
-            <h4>Drag & Drop Images</h4>
-            <p class="text-muted">or click to browse (JPEG/PNG)</p>
-            <input type="file" id="carouselImages" name="files" accept="image/*" multiple required style="display: none;">
-          </div>
-          <small class="form-text text-muted">Images will be auto-ordered by filename numbers. You can reorder below.</small>
-        </div>
-        
-        <!-- Image Organizer -->
-        <div class="mb-3">
-          <h5>Organize Images</h5>
-          <div id="carouselImageList" class="list-group"></div>
-        </div>
-        
-        <!-- Caption -->
-        <div class="mb-3">
-          <label for="carousel_caption" class="form-label">Caption</label>
-          <textarea class="form-control" name="caption" rows="3"></textarea>
-        </div>
-        
-        <button type="submit" class="btn btn-primary">Schedule Carousel</button>
-      </form>
-      <div class="carousel-preview mt-3">
-        <div id="carouselSlider" class="carousel slide">
-          <div class="carousel-inner" id="carouselPreviewInner"></div>
-          <button class="carousel-control-prev" type="button" data-bs-target="#carouselSlider" data-bs-slide="prev">
-            <span class="carousel-control-prev-icon"></span>
-          </button>
-          <button class="carousel-control-next" type="button" data-bs-target="#carouselSlider" data-bs-slide="next">
-            <span class="carousel-control-next-icon"></span>
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
 </div>
 {% endblock %}
 
@@ -590,71 +458,5 @@ document.addEventListener('DOMContentLoaded', function() {
         return true;
     });
 });
-
-document.querySelectorAll('#storyForm input, #storyForm select').forEach(el => {
-  el.addEventListener('input', updateStoryPreview);
-});
-
-function updateStoryPreview() {
-  // Image preview
-  const storyImage = document.getElementById('storyImage').files[0];
-  if (storyImage) {
-    const reader = new FileReader();
-    reader.onload = e => document.getElementById('storyPreviewImage').src = e.target.result;
-    reader.readAsDataURL(storyImage);
-  }
-  
-  // Text overlay
-  const text = document.querySelector('[name="text_overlay_text"]').value;
-  const position = document.querySelector('[name="text_overlay_position"]').value;
-  const overlay = document.getElementById('previewTextOverlay');
-  overlay.textContent = text;
-  overlay.style.top = position === 'top' ? '10%' : position === 'bottom' ? '80%' : '50%';
-  
-  // Poll
-  const question = document.querySelector('[name="poll_question"]').value;
-  const options = Array.from(document.querySelectorAll('[name^="poll_option"]')).map(opt => opt.value).filter(v => v);
-  const pollDiv = document.getElementById('previewPoll');
-  pollDiv.innerHTML = question ? `<strong>${question}</strong><br>${options.map(opt => `<div>${opt}</div>`).join('')}` : '';
-  
-  // Mentions, Link similarly
-}
-
-document.getElementById('carouselUploadZone').addEventListener('click', () => document.getElementById('carouselImages').click());
-document.getElementById('carouselImages').addEventListener('change', handleCarouselUpload);
-
-function handleCarouselUpload(e) {
-  const files = Array.from(e.target.files);
-  files.sort((a, b) => {
-    const numA = parseInt(a.name.match(/\d+/) || 0);
-    const numB = parseInt(b.name.match(/\d+/) || 0);
-    return numA - numB;
-  });
-  const list = document.getElementById('carouselImageList');
-  list.innerHTML = '';
-  files.forEach((file, index) => {
-    const item = document.createElement('div');
-    item.className = 'list-group-item d-flex align-items-center';
-    item.innerHTML = `<span class="me-2">${index+1}.</span> ${file.name} <button type="button" class="btn btn-sm btn-outline-danger ms-auto">Remove</button>`;
-    list.appendChild(item);
-  });
-  updateCarouselPreview(files);
-}
-
-function updateCarouselPreview(files) {
-  const inner = document.getElementById('carouselPreviewInner');
-  inner.innerHTML = '';
-  files.forEach((file, index) => {
-    const reader = new FileReader();
-    reader.onload = e => {
-      const slide = document.createElement('div');
-      slide.className = `carousel-item ${index === 0 ? 'active' : ''}`;
-      slide.innerHTML = `<img src="${e.target.result}" class="d-block w-100" style="height: 300px; object-fit: cover;">`;
-      inner.appendChild(slide);
-    };
-    reader.readAsDataURL(file);
-  });
-}
-// TODO: Add drag-and-drop reordering with Sortable.js or similar
 </script>
 {% endblock %} 

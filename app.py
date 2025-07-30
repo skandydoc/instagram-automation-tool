@@ -8,7 +8,7 @@ import json
 import random
 import requests
 import time
-from datetime import datetime, timedelta, time
+from datetime import datetime, timedelta
 from flask import Flask, render_template, request, jsonify, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.utils import secure_filename
@@ -16,9 +16,6 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.date import DateTrigger
 from dotenv import load_dotenv
 import pytz
-from flask_migrate import Migrate
-import logging
-from logging.handlers import RotatingFileHandler
 
 # Google Cloud Storage imports
 try:
@@ -49,7 +46,6 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 # Initialize database
 db = SQLAlchemy(app)
-migrate = Migrate(app, db)
 
 # Initialize scheduler
 scheduler = BackgroundScheduler()
@@ -91,9 +87,6 @@ class Post(db.Model):
     error_message = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    post_type = db.Column(db.String(20), nullable=False, default='feed')  # 'feed', 'story', 'carousel'
-    media_files = db.Column(db.JSON)
-    story_elements = db.Column(db.JSON)
 
 class PostingSchedule(db.Model):
     """Posting schedule configuration for each account"""
@@ -130,31 +123,6 @@ class CaptionTemplate(db.Model):
     category = db.Column(db.String(100))
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-class StoryTemplates(db.Model):
-    __tablename__ = 'story_templates'
-    id = db.Column(db.Integer, primary_key=True)
-    template_name = db.Column(db.String(50), nullable=False)
-    template_type = db.Column(db.String(20), nullable=False)  # 'text_overlay', 'poll'
-    template_data = db.Column(db.JSON, nullable=False)
-    is_global = db.Column(db.Boolean, default=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-class MentionSuggestions(db.Model):
-    __tablename__ = 'mention_suggestions'
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(50), unique=True, nullable=False)
-    usage_count = db.Column(db.Integer, default=0)
-    last_used = db.Column(db.DateTime)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-class PostMetrics(db.Model):
-    __tablename__ = 'post_metrics'
-    id = db.Column(db.Integer, primary_key=True)
-    post_id = db.Column(db.Integer, db.ForeignKey('posts.id'), nullable=False)
-    metric_type = db.Column(db.String(50), nullable=False)
-    metric_value = db.Column(db.Integer, default=0)
-    recorded_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 # Instagram API Integration
 class InstagramAPI:
@@ -418,74 +386,45 @@ class InstagramAPI:
         except requests.exceptions.RequestException as e:
             return {"error": f"Network error during media publish: {str(e)}"}
     
-    def post_story(self, account_id, image_url, elements, access_token=None):
-        token = access_token or self.default_token
-        url = f"{self.base_url}/{account_id}/stories"
-        data = {
-            'image_url': image_url,
-            'access_token': token
-        }
-        # Add interactive elements as stickers
-        stickers = []
-        if 'text_overlay' in elements:
-            stickers.append({
-                'type': 'text',
-                'text': elements['text_overlay']['text'],
-                'x': 0.5,
-                'y': 0.5 if elements['text_overlay']['position'] == 'center' else 0.2 if 'top' else 0.8,
-                'width': 0.8,
-                'height': 0.1
-            })
-        if 'poll' in elements:
-            stickers.append({
-                'type': 'poll',
-                'question': elements['poll']['question'],
-                'options': elements['poll']['options']
-            })
-        if 'mentions' in elements:
-            for mention in elements['mentions']:
-                stickers.append({
-                    'type': 'mention',
-                    'user_id': mention  # Assume username to ID resolution needed
-                })
-        if 'link' in elements:
-            stickers.append({
-                'type': 'link',
-                'url': elements['link']
-            })
-        if stickers:
-            data['attached_media'] = json.dumps(stickers)
-        response = requests.post(url, data=data)
-        return response.json()
-
-    def post_carousel(self, account_id, image_urls, caption, access_token=None):
-        token = access_token or self.default_token
-        children = []
-        for url in image_urls:
-            child = self.upload_media(account_id, url, '', token)  # Create child containers
-            if 'id' in child:
-                children.append(child['id'])
-        if not children:
-            return {'error': 'Failed to create child media'}
-        url = f"{self.base_url}/{account_id}/media"
-        data = {
-            'media_type': 'CAROUSEL',
-            'caption': caption,
-            'children': children,
-            'access_token': token
-        }
-        carousel = requests.post(url, data=data).json()
-        if 'id' not in carousel:
-            return carousel
-        return self.publish_media(account_id, carousel['id'], token)
-
-    def post_to_instagram(self, post):
-        if post.post_type == 'story':
-            return self.post_story(post.account.instagram_id, json.loads(post.media_urls)[0], json.loads(post.story_elements), post.account.access_token)
-        elif post.post_type == 'carousel':
-            return self.post_carousel(post.account.instagram_id, json.loads(post.media_urls), post.caption, post.account.access_token)
-        else:
-            return super().post_to_instagram(post.account.instagram_id, json.loads(post.media_urls)[0], post.caption, post.account.access_token)
+    def post_to_instagram(self, account_id, image_url, caption, access_token=None):
+        """Complete flow: upload and publish to Instagram"""
+        
+        # Check if this is a test account
+        if access_token and access_token.startswith('test'):
+            print(f"\n=== TEST ACCOUNT DETECTED ===")
+            print(f"Account ID: {account_id}")
+            print(f"Image URL: {image_url}")
+            print(f"Caption: {caption[:100]}...")
+            print(f"Skipping actual Instagram API call for test account")
+            
+            # Return success for test accounts
+            return {
+                "id": f"test_post_{account_id}_{int(time.time())}",
+                "message": "Test post created successfully (no actual Instagram API call)"
+            }
+        
+        # Step 1: Upload media (create container)
+        upload_result = self.upload_media(account_id, image_url, caption, access_token)
+        
+        if not upload_result:
+            return {"error": "Failed to upload media - no response from Instagram"}
+        
+        if 'error' in upload_result:
+            return {"error": f"Upload failed: {upload_result['error']}"}
+        
+        if 'id' not in upload_result:
+            return {"error": "Upload failed - no container ID returned"}
+        
+        # Step 2: Publish media
+        publish_result = self.publish_media(account_id, upload_result['id'], access_token)
+        
+        if not publish_result:
+            return {"error": "Failed to publish media - no response from Instagram"}
+        
+        if 'error' in publish_result:
+            return {"error": f"Publish failed: {publish_result['error']}"}
+        
+        return publish_result
 
 # Global Instagram API instance
 instagram_api = InstagramAPI()
@@ -532,26 +471,6 @@ def calculate_post_time(base_time, variance_minutes=15):
     variance_seconds = variance_minutes * 60
     random_offset = random.randint(-variance_seconds, variance_seconds)
     return base_time + timedelta(seconds=random_offset)
-
-def check_daily_limit(account_id, scheduled_date):
-    start = scheduled_date.replace(hour=0, minute=0, second=0)
-    end = start + timedelta(days=1)
-    count = Post.query.filter(Post.account_id == account_id, Post.scheduled_time >= start, Post.scheduled_time < end).count()
-    return count < 25, 25 - count
-
-def auto_schedule_stories(account_id, num_stories, start_date):
-    times = []
-    current = datetime.combine(start_date, time(6,0))
-    while len(times) < num_stories:
-        if current.time() >= time(2,0) and current.time() < time(6,0):
-            current = current.replace(hour=6, minute=0) + timedelta(days=1)
-        ok, remaining = check_daily_limit(account_id, current.date())
-        if ok:
-            times.append(current)
-            current += timedelta(hours=2)
-        else:
-            current = current.replace(hour=6, minute=0) + timedelta(days=1)
-    return times
 
 # Google Cloud Storage Functions
 class GoogleCloudStorage:
@@ -723,9 +642,14 @@ def execute_scheduled_post(post_id):
             image_url = media_urls[0]
             
             # Post to Instagram
-            result = instagram_api.post_to_instagram(post)
+            result = instagram_api.post_to_instagram(
+                account.instagram_id,
+                image_url,
+                post.caption,
+                account.access_token
+            )
             
-            if 'id' in result:
+            if result and 'id' in result:
                 post.status = 'posted'
                 post.instagram_post_id = result['id']
                 post.actual_post_time = datetime.utcnow()
@@ -911,7 +835,6 @@ def upload():
             caption_template = request.form.get('caption_template', '')
             custom_text = request.form.get('custom_text', '')
             schedule_type = request.form.get('schedule_type', 'now')
-            post_type = request.form.get('post_type', 'feed')
             
             # Validate account selection
             if not account_id:
@@ -1101,93 +1024,34 @@ Current account: @{account.username} (Real Instagram account)
                         scheduled_time = ist.localize(scheduled_time).astimezone(pytz.UTC).replace(tzinfo=None)
                     else:
                         scheduled_time = datetime.utcnow()
-                elif schedule_type == 'auto':
-                    # For auto-scheduling, we need to determine the next available time slot
-                    # This is a simplified example; in a real app, you'd calculate based on
-                    # the account's posting history and current day's schedule.
-                    # For now, let's just set it to a default time for auto-scheduling.
-                    # A more robust solution would involve a queue system.
-                    scheduled_time = datetime.utcnow() + timedelta(hours=2) # Default to 2 hours from now
-                    print(f"Auto-scheduling post for account {account_id} at {scheduled_time}")
                 else:
                     scheduled_time = datetime.utcnow()
                 
-                if post_type == 'feed':
-                    # Existing feed logic
-                    post = Post(
-                        account_id=account_id,
-                        content_type='image',  # TODO: Update based on post_type
-                        post_type=post_type,
-                        caption=caption,
-                        media_urls=json.dumps([image_url]),
-                        scheduled_time=scheduled_time
+                # Create post record
+                post = Post(
+                    account_id=account_id,
+                    content_type='image',
+                    caption=caption,
+                    media_urls=json.dumps([image_url]),
+                    scheduled_time=scheduled_time
+                )
+                
+                db.session.add(post)
+                db.session.commit()
+                
+                # Schedule the post
+                if schedule_type == 'now':
+                    # Execute immediately
+                    execute_scheduled_post(post.id)
+                else:
+                    # Schedule for later
+                    scheduler.add_job(
+                        func=execute_scheduled_post,
+                        trigger=DateTrigger(run_date=scheduled_time),
+                        args=[post.id],
+                        id=f'post_{post.id}',
+                        replace_existing=True
                     )
-                    db.session.add(post)
-                    db.session.commit()
-                    # Schedule post
-                    flash('Post scheduled!', 'success')
-                    return redirect(url_for('posts'))
-                elif post_type == 'story':
-                    file = request.files.get('file')
-                    if not file or file.filename == '':
-                        flash('No image selected for story', 'error')
-                        return redirect(url_for('upload'))
-                    filename = secure_filename(file.filename)
-                    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-                    file.save(filepath)
-                    image_url = url_for('uploaded_file', filename=filename, _external=True)
-                    story_elements = {
-                        'text_overlay': {
-                            'text': request.form.get('text_overlay_text', ''),
-                            'position': request.form.get('text_overlay_position', 'center')
-                        },
-                        'poll': {
-                            'question': request.form.get('poll_question', ''),
-                            'options': [request.form.get(f'poll_option{i}', '') for i in range(1,5) if request.form.get(f'poll_option{i}')]
-                        },
-                        'mentions': request.form.getlist('mentions'),  # TODO: Implement
-                        'link': request.form.get('link_url', '')
-                    }
-                    post = Post(
-                        account_id=account_id,
-                        post_type='story',
-                        media_urls=json.dumps([image_url]),
-                        story_elements=json.dumps(story_elements),
-                        caption=request.form.get('caption', ''),
-                        scheduled_time=scheduled_time
-                    )
-                    db.session.add(post)
-                    db.session.commit()
-                    # Schedule post
-                    flash('Story scheduled!', 'success')
-                    return redirect(url_for('posts'))
-                elif post_type == 'carousel':
-                    files = request.files.getlist('files')
-                    if not files:
-                        flash('No images selected for carousel', 'error')
-                        return redirect(url_for('upload'))
-                    media_urls = []
-                    for file in files:
-                        if file.filename == '': continue
-                        filename = secure_filename(file.filename)
-                        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-                        file.save(filepath)
-                        media_urls.append(url_for('uploaded_file', filename=filename, _external=True))
-                    if len(media_urls) > 20:
-                        flash('Maximum 20 images allowed', 'error')
-                        return redirect(url_for('upload'))
-                    post = Post(
-                        account_id=account_id,
-                        post_type='carousel',
-                        media_urls=json.dumps(media_urls),
-                        caption=request.form.get('caption', ''),
-                        scheduled_time=scheduled_time
-                    )
-                    db.session.add(post)
-                    db.session.commit()
-                    # Schedule
-                    flash('Carousel scheduled!', 'success')
-                    return redirect(url_for('posts'))
                 
                 flash('Post scheduled successfully!', 'success')
                 return redirect(url_for('posts'))
@@ -1521,21 +1385,6 @@ def init_db():
         flash(f'Error initializing database: {str(e)}', 'error')
     
     return redirect(url_for('index'))
-
-@app.route('/api/templates', methods=['GET', 'POST'])
-def api_templates():
-    if request.method == 'POST':
-        data = request.json
-        template = StoryTemplates(
-            template_name=data['name'],
-            template_type=data['type'],
-            template_data=data['data']
-        )
-        db.session.add(template)
-        db.session.commit()
-        return jsonify({'id': template.id}), 201
-    templates = StoryTemplates.query.all()
-    return jsonify([{'id': t.id, 'name': t.template_name, 'type': t.template_type} for t in templates])
 
 if __name__ == '__main__':
     with app.app_context():

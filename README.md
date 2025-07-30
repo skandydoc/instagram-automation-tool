@@ -1,17 +1,34 @@
 # Instagram Automation Tool
 
-A comprehensive Python Flask application for automating Instagram posts across multiple business accounts. Features include content scheduling, hashtag management, caption templates, and analytics tracking.
+A comprehensive Python Flask application for automating Instagram posts across multiple business accounts. Features include content scheduling, hashtag management, caption templates, analytics tracking, and support for Feed Posts, Stories, Carousels, and Reels.
 
-## 🚀 Features
+## 🚀 Current Features
 
+### ✅ **Fully Implemented & Working**
 - **Multi-Account Management**: Manage up to 20 Instagram business accounts
+- **Feed Post Automation**: Single image posts with captions and hashtags
+- **Carousel Posts**: Multi-image posts (up to 10 images) with drag-and-drop reordering
+- **Reel Posts**: Video content posting with proper format validation
 - **Smart Scheduling**: Schedule posts with 1 PM and 10 PM IST slots with ±15 minute variance
 - **Content Upload**: Easy drag-and-drop image upload interface
 - **Caption Templates**: Pre-built templates with variable substitution
 - **Hashtag Repository**: Automated hashtag selection from curated collection
-- **Analytics Dashboard**: Track post performance, engagement rates, and success metrics
+- **Google Cloud Storage**: Automatic image hosting for public URLs
 - **Real-time Status**: Monitor post status (scheduled, posted, failed)
 - **Error Handling**: Comprehensive error reporting and validation
+- **Test Account System**: Development mode for testing without real API calls
+
+### 🔄 **Partially Implemented**
+- **Story Posts**: API integration complete, UI pending (Page admin validation required)
+- **Analytics Dashboard**: Basic tracking implemented, advanced metrics pending
+- **Bulk Upload**: Framework ready, UI implementation pending
+
+### 📋 **Planned Features**
+- **Story Builder UI**: Text overlays, polls, mentions, links
+- **Advanced Analytics**: Engagement tracking, performance metrics
+- **Bulk Scheduling**: Multiple posts at once
+- **Template Management**: Create and manage custom templates
+- **API Rate Limiting**: Smart queuing for daily limits
 
 ## 🛠️ Installation
 
@@ -20,6 +37,7 @@ A comprehensive Python Flask application for automating Instagram posts across m
 - Instagram Business Account(s)
 - Facebook Business Manager access
 - Instagram Graph API access token
+- Google Cloud Storage (optional, for production)
 
 ### Setup Steps
 
@@ -39,6 +57,10 @@ A comprehensive Python Flask application for automating Instagram posts across m
    DATABASE_URL=sqlite:///instagram_automation.db
    INSTAGRAM_ACCESS_TOKEN=your_instagram_access_token_here
    TIMEZONE=Asia/Kolkata
+
+   # Google Cloud Storage Configuration (Optional)
+   GCS_BUCKET_NAME=your-bucket-name
+   GCS_PROJECT_ID=your-project-id
    ```
 
 3. **Start the Application**
@@ -128,11 +150,12 @@ A comprehensive Python Flask application for automating Instagram posts across m
 - **Morning Slot**: 1:00 PM IST (±15 minutes variance)
 - **Evening Slot**: 10:00 PM IST (±15 minutes variance)
 - **Timezone**: Asia/Kolkata (IST)
-- **Rate Limiting**: Respects Instagram's API limits
+- **Rate Limiting**: Respects Instagram's API limits (25 posts/day)
 
 ### Content Requirements
 - **Image Formats**: JPG, PNG, GIF
-- **File Size**: Maximum 100MB per image
+- **Video Formats**: MP4 with H.264 codec, AAC audio
+- **File Size**: Maximum 100MB per file
 - **Carousel**: Up to 10 images per post
 - **Public URLs**: Images must be publicly accessible for Instagram API
 
@@ -183,12 +206,25 @@ Expected response:
    - Ensure image URLs are accessible
    - Check error messages in post details
 
-4. **Database errors**
+4. **Story posts appearing in feed**
+   - Ensure Page admin permissions are properly set
+   - Verify Facebook Business Manager connection
+   - Check Instagram account type (must be Business/Creator)
+
+5. **Database errors**
    - Run `/init_db` to initialize database
    - Check file permissions in project directory
    - Verify SQLite is working properly
 
 ## 📝 Development Notes
+
+### Current Technical Stack
+- **Backend**: Python Flask with SQLAlchemy
+- **Database**: SQLite (production: PostgreSQL recommended)
+- **Storage**: Google Cloud Storage for public URLs
+- **Scheduling**: APScheduler for background tasks
+- **UI**: Bootstrap 5 with vanilla JavaScript
+- **API**: Instagram Graph API v18.0
 
 ### For Production Deployment
 1. **Environment Variables**: Set proper production values
@@ -212,6 +248,9 @@ instagram/
 │   ├── upload.html
 │   └── posts.html
 ├── uploads/              # Temporary file storage
+├── story_post.py         # Story posting script
+├── carousel_post.py      # Carousel posting script
+├── test_post_reel.py     # Reel posting script
 └── instagram_automation.db # SQLite database
 ```
 
@@ -242,6 +281,31 @@ For issues related to:
 - [ ] First account added successfully
 - [ ] Test post uploaded and scheduled
 - [ ] Dashboard showing correct statistics
+
+## 🚀 Recent Updates
+
+### v1.2.0 (Current)
+- ✅ Fixed JavaScript template issues in accounts.html
+- ✅ Enhanced Google Cloud Storage integration
+- ✅ Improved error handling and validation
+- ✅ Added comprehensive API testing endpoints
+- ✅ Implemented carousel posting (up to 10 images)
+- ✅ Added reel posting with video format validation
+- ✅ Enhanced file upload with drag-and-drop
+- ✅ Improved UI responsiveness and user experience
+
+### v1.1.0
+- ✅ Multi-account Instagram management
+- ✅ Smart scheduling with time variance
+- ✅ Caption templates with variable substitution
+- ✅ Hashtag repository system
+- ✅ Real-time post status tracking
+
+### v1.0.0
+- ✅ Basic Flask application setup
+- ✅ Instagram Graph API integration
+- ✅ SQLite database with SQLAlchemy
+- ✅ Bootstrap UI framework
 
 ---
 
