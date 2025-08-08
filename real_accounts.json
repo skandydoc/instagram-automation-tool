@@ -1,0 +1,52 @@
+[
+  {
+    "internal_id": 8,
+    "username": "studylogneet",
+    "instagram_id": "17841475428843806",
+    "access_token": "EAAPLeLizF4oBPIrc5E6JlTbp1NPWPUjHWADWbOCJCQi7Vhx3SGMyjwpDBUSPdNb896svKuTbRA8X3Vy9wDYVNUJlGKhjZBZC9Qp7KQOEtQsFwzVQSd5QmDZB3h6QOSBFhCa8ixW7SjB6g2cQlWOP7mEgaaL2XNEKEiiwTCTXfEQ2vYcR0DjDl56VwGx",
+    "account_type": "business",
+    "is_active": true,
+    "created_at": "2025-07-15 12:40:16.193248",
+    "updated_at": "2025-07-15 12:40:16.193254"
+  },
+  {
+    "internal_id": 9,
+    "username": "knowyourmedschool",
+    "instagram_id": "17841475613013338",
+    "access_token": "EAAPLeLizF4oBPIrc5E6JlTbp1NPWPUjHWADWbOCJCQi7Vhx3SGMyjwpDBUSPdNb896svKuTbRA8X3Vy9wDYVNUJlGKhjZBZC9Qp7KQOEtQsFwzVQSd5QmDZB3h6QOSBFhCa8ixW7SjB6g2cQlWOP7mEgaaL2XNEKEiiwTCTXfEQ2vYcR0DjDl56VwGx",
+    "account_type": "business",
+    "is_active": true,
+    "created_at": "2025-07-30 16:03:13.437194",
+    "updated_at": "2025-07-30 16:03:13.437202"
+  },
+  {
+    "internal_id": 11,
+    "username": "the_practical_crmi",
+    "instagram_id": "17841475909554017",
+    "access_token": "EAAPLeLizF4oBPEKgsH9ZCvZB7ybahmUfK31qZBJezJds6g7epyaniduayZAPQ3dbtzDZAvZCGcu0OMMOc5KXtMrhumZC9PH9SHOKZCMWDRug5BZCCy1zGcuuixWsCO8iSXbFhiNxiLHvnR7RZAhAFpfegWn7tV5RGbE7TAWwBOcHzBPqiLYRYIdLJbsrurthwc",
+    "account_type": "business",
+    "is_active": true,
+    "created_at": "2025-08-08 09:12:05.586715",
+    "updated_at": "2025-08-08 09:12:05.586729"
+  },
+  {
+    "internal_id": 12,
+    "username": "mbbs_motivation_mafia",
+    "instagram_id": "17841476119155485",
+    "access_token": "EAAPLeLizF4oBPEKgsH9ZCvZB7ybahmUfK31qZBJezJds6g7epyaniduayZAPQ3dbtzDZAvZCGcu0OMMOc5KXtMrhumZC9PH9SHOKZCMWDRug5BZCCy1zGcuuixWsCO8iSXbFhiNxiLHvnR7RZAhAFpfegWn7tV5RGbE7TAWwBOcHzBPqiLYRYIdLJbsrurthwc",
+    "account_type": "business",
+    "is_active": true,
+    "created_at": "2025-08-08 09:38:10.556685",
+    "updated_at": "2025-08-08 09:38:10.556693"
+  },
+  {
+    "internal_id": 13,
+    "username": "sanskarimedico",
+    "instagram_id": "17841476254430790",
+    "access_token": "EAAPLeLizF4oBPEKgsH9ZCvZB7ybahmUfK31qZBJezJds6g7epyaniduayZAPQ3dbtzDZAvZCGcu0OMMOc5KXtMrhumZC9PH9SHOKZCMWDRug5BZCCy1zGcuuixWsCO8iSXbFhiNxiLHvnR7RZAhAFpfegWn7tV5RGbE7TAWwBOcHzBPqiLYRYIdLJbsrurthwc",
+    "account_type": "business",
+    "is_active": true,
+    "created_at": "2025-08-08 09:47:25.322765",
+    "updated_at": "2025-08-08 09:47:25.322782"
+  }
+]

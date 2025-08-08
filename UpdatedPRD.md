@@ -1240,5 +1240,25 @@ This comprehensive implementation guide provides the detailed roadmap for succes
 
 
 
+Available GCS Bucket:
+
+Project ID: instagram-20250808120254
+Bucket: instagram-automation-20250808120441
+Auth: Application Default Credentials (ADC) via gcloud; quota project set to the new project
+Test upload: healthcheck.txt uploaded and publicly readable
+https://storage.googleapis.com/instagram-automation-20250808120441/healthcheck.txt
 
 
+FLASK_ENV=development
+SECRET_KEY=your-secret-key-change-this-in-production
+DATABASE_URL=sqlite:///instagram_automation.db
+INSTAGRAM_ACCESS_TOKEN=EAAPLeLizF4oBPKv8wFz2bp4Tbtd9voimZCQRNmUIubw1UemVNHFdZAy3UZAw6nTXH2CR2EcZCXeKW6tDSYZBoeDjfclA9oyEpWAl7jzvzdnP2L3NB7iatx0D9AuZAZBwBrwZC7MI7fPzGMMPlzOfrZC1p9kAwBRZAQjc4nXgUakuJlodWIPMMHlAZAyWTaeWtrJzqIu
+TIMEZONE=Asia/Kolkata
+ 
+# Google Cloud Storage Configuration
+GCS_BUCKET_NAME=instagram-automation-20250808120441
+GCS_PROJECT_ID=instagram-20250808120254
+# Path to service account key file (optional - using default credentials)
+# GOOGLE_APPLICATION_CREDENTIALS=path/to/service-account-key.json 
+
+#AccountID- 17841475428843806
